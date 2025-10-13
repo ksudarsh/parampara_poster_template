@@ -433,8 +433,15 @@ def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
 
     def draw_row(items: List[Tuple[str,str]], start_y: int) -> int:
         row_h = 0
+        # Calculate horizontal offset for centering partial rows
+        row_offset_x = 0
+        if 0 < len(items) < num_cols:
+            # Total width of the space occupied by the missing cells and their gutters
+            unused_width = (num_cols - len(items)) * (cell_w + gutter_x)
+            row_offset_x = unused_width // 2
+
         for col_idx, (p, cap) in enumerate(items):
-            x = x0 + col_idx * (cell_w + gutter_x)
+            x = x0 + row_offset_x + col_idx * (cell_w + gutter_x)
             h_used = draw_cell(x, start_y, p, cap)
             if h_used > row_h:
                 row_h = h_used
