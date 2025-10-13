@@ -1,0 +1,34 @@
+
+Sri Parakala Matham Guru Parampara — Poster Template (A3, 300 DPI)
+
+WHAT'S INCLUDED
+- generate_parampara_poster.py  -> Python script to build the poster
+- assets/parchment_bg.jpg       -> Aged parchment background
+- assets/mandala_tile.png       -> Seamless gold mandala tile (faint)
+- assets/border_overlay.png     -> Gold border overlay (transparent center)
+- captions.csv                  -> Edit this CSV to map images and captions
+- images/                       -> Put your guru portraits here
+
+REQUIREMENTS
+- Python 3.9+
+- pip install pillow
+
+HOW TO USE
+1) Place your portraits in the 'images/' folder. Filenames should match the CSV column 'image_filename'.
+2) Edit 'captions.csv' (UTF-8). Keep the order left-to-right, then down (match your PDF's visual order).
+   - Columns:
+       order           -> numeric order (1..N); for your reference only
+       image_filename  -> exact filename placed under images/
+       caption         -> text beneath portrait (standardized name + date range)
+3) Run:
+   python generate_parampara_poster.py
+4) Output:
+   Sri_Parakala_Matham_Guru_Parampara_Final.png (A3 at 300 DPI). Print directly or convert to PDF.
+
+TUNING
+- If content overflows, reduce CAPTION_FONT_SIZE or max_item_h inside the script.
+- To make images larger, increase max_item_h or reduce CAPTION_FONT_SIZE.
+- For a single-column scroll look, set COL_GAP = 0 and adjust col_width = (A3_W - 2*MARGIN).
+- To output PDF instead of PNG, I can provide a PDF variant on request.
+
+Enjoy!
