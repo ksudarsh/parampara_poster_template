@@ -156,18 +156,18 @@ def get_adaptive_colors(background_sample: Image.Image) -> Tuple[Tuple[int,int,i
     Analyzes the background and returns a (text_color, shadow_color) pair for high contrast.
     """
     # Define color palettes
-    dark_text = (70, 50, 0)      # Dark, rich brown/gold
-    dark_shadow = (30, 20, 0)    # Even darker shadow
+    dark_text = (101, 67, 33)    # A rich, deep gold/brown for high contrast on light backgrounds
+    dark_shadow = (40, 25, 10)   # An even darker brown for a subtle, classic drop shadow
     light_text = (255, 245, 220) # Bright, creamy off-white
-    light_shadow = (235, 215, 180) # Subtle bright shadow to lift dark text
+    light_shadow = (30, 20, 0)   # A dark shadow to give light text definition
 
-    # Calculate average luminance of the background area
-    # Using RMS of RGB values as a simple brightness measure
+    # Calculate average luminance using the standard (perceptual) formula
     stat = background_sample.convert("RGB").getdata()
-    avg_luma = math.sqrt(sum(r*r + g*g + b*b for r,g,b in stat) / len(stat)) / 3
+    if not stat: return dark_text, dark_shadow # Default for empty samples
+    avg_luma = sum(0.299*r + 0.587*g + 0.114*b for r,g,b in stat) / len(stat)
 
-    # If background is bright (luma > ~135), use dark text. Otherwise, use light text.
-    if avg_luma > 135:
+    # If background is bright (luma > 128 on a 0-255 scale), use dark text. Otherwise, use light text.
+    if avg_luma > 128:
         return dark_text, light_shadow # Dark text on light background
     else:
         return light_text, dark_shadow # Light text on dark background
@@ -352,7 +352,8 @@ def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
                    caption_font: int, footer_font: int, img_scale: float,
                    section_gap_extra: int, section2_title_size: int, section2_sub_size: int, 
                    banner_max_height_fraction: float,
-                   parchment_brightness: float = 1.0) -> Tuple[Image.Image, int]:
+                   parchment_brightness: float = 1.0,
+                   parchment_mode: str = 'tile') -> Tuple[Image.Image, int]:
     # Load captions + images (order only)
     cap_founders, cap_parakala = read_captions_from_xlsx(XLSX_PATH)
     img_founders = get_ordered_images(IMAGES_DIR, r"^F(\d{2}).*\.png$", 1)   # F01..F17 
@@ -372,7 +373,15 @@ def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
 
     # Background
     if os.path.isfile(PARCHMENT_PATH):
-        parchment = Image.open(PARCHMENT_PATH).convert("RGB").resize((page_w, page_h), Image.LANCZOS)
+        if parchment_mode == 'stretch':
+            parchment = Image.open(PARCHMENT_PATH).convert("RGB").resize((page_w, page_h), Image.LANCZOS)
+        else: # 'tile' is the default
+            parchment = Image.new("RGB", (page_w, page_h))
+            tile_img = Image.open(PARCHMENT_PATH).convert("RGB")
+            tw, th = tile_img.size
+            for y in range(0, page_h, th):
+                for x in range(0, page_w, tw):
+                    parchment.paste(tile_img, (x, y))
         if parchment_brightness != 1.0:
             enhancer = ImageEnhance.Brightness(parchment)
             parchment = enhancer.enhance(parchment_brightness)
@@ -530,7 +539,8 @@ def render_grid_poster_A2(
         section2_title_size: int = 110,
         section2_sub_size: int = 58,
         banner_max_height_fraction: float = 0.05,   # 5% strict cap by default,
-        parchment_brightness: float = 1.0
+        parchment_brightness: float = 1.0,
+        parchment_mode: str = 'tile'
     ) -> Optional[Image.Image]:
     """
     Renders once; if the layout overflows the page, auto-retries with slightly smaller images.
@@ -544,7 +554,7 @@ def render_grid_poster_A2(
         img, footer_y = render_once_A2(page_w, page_h, margin, num_cols, gutter_x, row_gap,
                                        title_font, subtitle_font, caption_font, footer_font,
                                        scale, section_gap_extra, section2_title_size,
-                                       section2_sub_size, banner_max_height_fraction, parchment_brightness)
+                                       section2_sub_size, banner_max_height_fraction, parchment_brightness, parchment_mode)
         best_img = img
         # keep a 120px safety margin at the bottom
         if footer_y <= page_h - 120:
@@ -573,7 +583,8 @@ def main():
         section2_title_size=110,
         section2_sub_size=58, 
         banner_max_height_fraction=0.05,
-        parchment_brightness=0.85         # < 1.0 is darker, > 1.0 is brighter
+        parchment_brightness=0.85,        # < 1.0 is darker, > 1.0 is brighter
+        parchment_mode='stretch'             # Background mode. Options: 'tile' (repeats small image) or 'stretch' (resizes image to fit).
     )
 
     if final_image:
