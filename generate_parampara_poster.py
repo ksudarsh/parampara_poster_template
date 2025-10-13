@@ -488,9 +488,10 @@ def render_grid_poster_A2(
         section2_sub_size: int = 58,
         banner_max_height_fraction: float = 0.05,   # 5% strict cap by default,
         parchment_brightness: float = 1.0
-    ):
+    ) -> Optional[Image.Image]:
     """
     Renders once; if the layout overflows the page, auto-retries with slightly smaller images.
+    Returns the final rendered image.
     """
     # Auto-fit retry loop
     attempts = 6
@@ -508,14 +509,13 @@ def render_grid_poster_A2(
         # shrink a bit and try again
         scale = max(0.60, round(scale - 0.02, 3))
         print(f">>> Reflow (attempt {i+2}/{attempts}) — reducing img_scale to {scale}")
-    best_img.save(OUT_A2, quality=95)
-    print(f"Saved A2 poster → {OUT_A2}")
+    return best_img
 
 # --------------------------------------------------------------------
 # Main — A2 only
 # --------------------------------------------------------------------
 def main():
-    render_grid_poster_A2(
+    final_image = render_grid_poster_A2(
         page_w=4961, page_h=7016,   # A2 @ ~300dpi
         margin=90,
         num_cols=6,
@@ -532,6 +532,15 @@ def main():
         banner_max_height_fraction=0.05,
         parchment_brightness=0.85         # < 1.0 is darker, > 1.0 is brighter
     )
+
+    if final_image:
+        # Save PNG
+        final_image.save(OUT_A2, quality=95)
+        print(f"Saved A2 poster as PNG → {OUT_A2}")
+        # Save PDF
+        pdf_path = OUT_A2.replace(".png", ".pdf")
+        final_image.save(pdf_path, "PDF", resolution=300.0, quality=95)
+        print(f"Saved A2 poster as PDF → {pdf_path}")
 
 if __name__ == "__main__":
     main()
