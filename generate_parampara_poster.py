@@ -16,7 +16,7 @@
 # Deps:
 #   pip install pillow pandas openpyxl
 
-import os, re, sys, glob
+import os, re, sys, glob, math
 from typing import Optional, List, Tuple
 import pandas as pd
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
@@ -151,6 +151,27 @@ def _text_size(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFon
     bbox = draw.textbbox((0, 0), text, font=font)
     return bbox[2] - bbox[0], bbox[3] - bbox[1]
 
+def get_adaptive_colors(background_sample: Image.Image) -> Tuple[Tuple[int,int,int], Tuple[int,int,int]]:
+    """
+    Analyzes the background and returns a (text_color, shadow_color) pair for high contrast.
+    """
+    # Define color palettes
+    dark_text = (70, 50, 0)      # Dark, rich brown/gold
+    dark_shadow = (30, 20, 0)    # Even darker shadow
+    light_text = (255, 245, 220) # Bright, creamy off-white
+    light_shadow = (235, 215, 180) # Subtle bright shadow to lift dark text
+
+    # Calculate average luminance of the background area
+    # Using RMS of RGB values as a simple brightness measure
+    stat = background_sample.convert("RGB").getdata()
+    avg_luma = math.sqrt(sum(r*r + g*g + b*b for r,g,b in stat) / len(stat)) / 3
+
+    # If background is bright (luma > ~135), use dark text. Otherwise, use light text.
+    if avg_luma > 135:
+        return dark_text, light_shadow # Dark text on light background
+    else:
+        return light_text, dark_shadow # Light text on dark background
+
 def draw_centered_text(img: Image.Image, text: str, y: int, size: int, color,
                        max_width: Optional[int] = None, line_gap: int = 10,
                        shadow_color: Optional[Tuple[int,int,int]] = None,
@@ -159,6 +180,7 @@ def draw_centered_text(img: Image.Image, text: str, y: int, size: int, color,
         return y
     d = ImageDraw.Draw(img)
     font = load_font(size)
+    use_adaptive_color = color is None
 
     def _draw(x_pos, y_pos, txt, fill):
         d.text((x_pos, y_pos), txt, font=font, fill=fill)
@@ -166,6 +188,10 @@ def draw_centered_text(img: Image.Image, text: str, y: int, size: int, color,
     if max_width is None:
         w, h = _text_size(d, text, font)
         x = (img.width - w) // 2
+        if use_adaptive_color:
+            bg_sample = img.crop((x, y, x + w, y + h))
+            color, shadow_color = get_adaptive_colors(bg_sample)
+
         if shadow_color:
             _draw(x + shadow_offset[0], y + shadow_offset[1], text, shadow_color)
         _draw(x, y, text, color)
@@ -187,6 +213,11 @@ def draw_centered_text(img: Image.Image, text: str, y: int, size: int, color,
     for li in lines:
         lw, lh = _text_size(d, li, font)
         x = (img.width - lw)//2
+        if use_adaptive_color:
+            # Sample background for each line for maximum accuracy on gradients
+            bg_sample = img.crop((x, y0, x + lw, y0 + lh))
+            color, shadow_color = get_adaptive_colors(bg_sample)
+
         if shadow_color:
             _draw(x + shadow_offset[0], y0 + shadow_offset[1], li, shadow_color)
         _draw(x, y0, li, color)
@@ -268,21 +299,16 @@ def draw_separator_block(canvas: Image.Image, y: int,
                          title_main: str, title_sub: str,
                          main_size: int, sub_size: int,
                          line_color=(212,175,55),
-                         main_text_color=(140, 100, 0),
-                         main_shadow_color=(70, 50, 0),
-                         sub_text_color=(100,60,40),
                          margin=80) -> int:
     d = ImageDraw.Draw(canvas)
     y_line = y + 12
     d.line((margin, y_line, canvas.width - margin, y_line), fill=line_color, width=3)
     y0 = y_line + 18
-    y0 = draw_centered_text(canvas, title_main, y0, main_size,
-                           color=main_text_color,
-                           shadow_color=main_shadow_color,
+    y0 = draw_centered_text(canvas, title_main, y0, main_size, color=None,
                            shadow_offset=(4,4),
                            max_width=int(canvas.width*0.92), line_gap=8)
-    y0 = draw_centered_text(canvas, title_sub, y0, sub_size, sub_text_color,
-                           max_width=int(canvas.width*0.92), line_gap=8)
+    y0 = draw_centered_text(canvas, title_sub, y0, sub_size, color=None,
+                           shadow_offset=(3,3), max_width=int(canvas.width*0.92), line_gap=8)
     return y0 + 10
 
 # --------------------------------------------------------------------
@@ -361,12 +387,11 @@ def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
     y = draw_banner(canvas, y, page_w, margin,
                     max_height_fraction=banner_max_height_fraction,
                     feather_radius=44, gold_tint_alpha=48, desaturate=0.88)
-    y = draw_centered_text(canvas, TITLE_TEXT, y, title_font,
-                           color=(140, 100, 0),  # Dark gold
-                           shadow_color=(70, 50, 0), # Darker shadow
+    y = draw_centered_text(canvas, TITLE_TEXT, y, title_font, color=None, # color=None triggers adaptive mode
                            shadow_offset=(5, 5),
                            max_width=int(page_w*0.92), line_gap=12)
-    y = draw_centered_text(canvas, SUBTITLE_TEXT, y + 8, subtitle_font, (100,60,40), int(page_w*0.92), line_gap=10)
+    y = draw_centered_text(canvas, SUBTITLE_TEXT, y + 8, subtitle_font, color=None,
+                           shadow_offset=(3,3), max_width=int(page_w*0.92), line_gap=10)
     y += 24
 
     # Grid geometry
@@ -424,9 +449,22 @@ def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
         if line:
             lines.append(line)
         ty = img_y + h + 6
+
+        # Adaptive color for captions
+        total_text_h = sum(_text_size_local(d, li, cap_font)[1] for li in lines) + (len(lines) - 1) * 3
+        if lines:
+            max_lw = max(_text_size_local(d, li, cap_font)[0] for li in lines)
+            bg_sample_x = x + (cell_w - max_lw) // 2
+            bg_sample = canvas.crop((bg_sample_x, ty, bg_sample_x + max_lw, ty + total_text_h))
+            cap_color, cap_shadow_color = get_adaptive_colors(bg_sample)
+        else: # Default if no caption
+            cap_color, cap_shadow_color = (70, 50, 0), (30, 20, 0)
+
         for li in lines:
             lw, lh = _text_size_local(d, li, cap_font)
-            d.text((x + (cell_w - lw)//2, ty), li, font=cap_font, fill=(110,20,20))
+            tx = x + (cell_w - lw)//2
+            d.text((tx + 2, ty + 2), li, font=cap_font, fill=cap_shadow_color) # Subtle shadow
+            d.text((tx, ty), li, font=cap_font, fill=cap_color)
             ty += lh + 3
         print_font_choice_once()
         return (ty - y)
@@ -471,10 +509,8 @@ def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
 
     # Footer (no border)
     footer_y = min(page_h - 140, y + 24)
-    draw_centered_text(canvas, FOOTER_TEXT, footer_y, footer_font,
-                       color=(140, 100, 0),
-                       shadow_color=(70, 50, 0),
-                       shadow_offset=(3,3),
+    draw_centered_text(canvas, FOOTER_TEXT, footer_y, footer_font, color=None,
+                       shadow_offset=(4,4),
                        max_width=int(page_w*0.92))
 
     return canvas.convert("RGB"), footer_y
