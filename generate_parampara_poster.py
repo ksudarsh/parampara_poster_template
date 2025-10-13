@@ -324,11 +324,12 @@ def read_captions_from_xlsx(xlsx_path: str):
 def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
                    gutter_x: int, row_gap: int, title_font: int, subtitle_font: int,
                    caption_font: int, footer_font: int, img_scale: float,
-                   section_gap_extra: int, section2_title_size: int, section2_sub_size: int,
-                   banner_max_height_fraction: float) -> Tuple[Image.Image, int]:
+                   section_gap_extra: int, section2_title_size: int, section2_sub_size: int, 
+                   banner_max_height_fraction: float,
+                   parchment_brightness: float = 1.0) -> Tuple[Image.Image, int]:
     # Load captions + images (order only)
     cap_founders, cap_parakala = read_captions_from_xlsx(XLSX_PATH)
-    img_founders = get_ordered_images(IMAGES_DIR, r"^F(\d{2}).*\.png$", 1)   # F01..F17
+    img_founders = get_ordered_images(IMAGES_DIR, r"^F(\d{2}).*\.png$", 1)   # F01..F17 
     img_parakala = get_ordered_images(IMAGES_DIR, r"^(\d{4}).*\.png$", 1)    # 0100..3600
 
     founders_pairs: List[Tuple[str, str]] = []
@@ -346,6 +347,9 @@ def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
     # Background
     if os.path.isfile(PARCHMENT_PATH):
         parchment = Image.open(PARCHMENT_PATH).convert("RGB").resize((page_w, page_h), Image.LANCZOS)
+        if parchment_brightness != 1.0:
+            enhancer = ImageEnhance.Brightness(parchment)
+            parchment = enhancer.enhance(parchment_brightness)
     else:
         parchment = Image.new("RGB", (page_w, page_h), (250, 240, 220))
     canvas = parchment.convert("RGBA")
@@ -482,7 +486,8 @@ def render_grid_poster_A2(
         section_gap_extra: int = 80,
         section2_title_size: int = 110,
         section2_sub_size: int = 58,
-        banner_max_height_fraction: float = 0.05,   # 5% strict cap by default
+        banner_max_height_fraction: float = 0.05,   # 5% strict cap by default,
+        parchment_brightness: float = 1.0
     ):
     """
     Renders once; if the layout overflows the page, auto-retries with slightly smaller images.
@@ -494,8 +499,8 @@ def render_grid_poster_A2(
     for i in range(attempts):
         img, footer_y = render_once_A2(page_w, page_h, margin, num_cols, gutter_x, row_gap,
                                        title_font, subtitle_font, caption_font, footer_font,
-                                       scale, section_gap_extra, section2_title_size, section2_sub_size,
-                                       banner_max_height_fraction)
+                                       scale, section_gap_extra, section2_title_size,
+                                       section2_sub_size, banner_max_height_fraction, parchment_brightness)
         best_img = img
         # keep a 120px safety margin at the bottom
         if footer_y <= page_h - 120:
@@ -523,8 +528,9 @@ def main():
         img_scale=0.68,
         section_gap_extra=80,
         section2_title_size=110,
-        section2_sub_size=58,
-        banner_max_height_fraction=0.05  # ← truly strict now (adjust 0.04–0.08 as you like)
+        section2_sub_size=58, 
+        banner_max_height_fraction=0.05,
+        parchment_brightness=0.85         # < 1.0 is darker, > 1.0 is brighter
     )
 
 if __name__ == "__main__":
