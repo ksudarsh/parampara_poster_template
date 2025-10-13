@@ -352,8 +352,8 @@ def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
                    caption_font: int, footer_font: int, img_scale: float,
                    section_gap_extra: int, section2_title_size: int, section2_sub_size: int, 
                    banner_max_height_fraction: float,
-                   parchment_brightness: float = 1.0,
-                   parchment_mode: str = 'tile') -> Tuple[Image.Image, int]:
+                   parchment_brightness: float = 1.0, parchment_mode: str = 'tile',
+                   featured_acharya_mode: bool = True) -> Tuple[Image.Image, int]:
     # Load captions + images (order only)
     cap_founders, cap_parakala = read_captions_from_xlsx(XLSX_PATH)
     img_founders = get_ordered_images(IMAGES_DIR, r"^F(\d{2}).*\.png$", 1)   # F01..F17 
@@ -390,6 +390,7 @@ def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
     canvas = parchment.convert("RGBA")
     tile_mandala_over(canvas, MANDALA_TILE_PATH, opacity=32)
     draw_corner_overlays(canvas, ASSETS_DIR)
+    d = ImageDraw.Draw(canvas)
 
     # Banner → Title → Subtitle
     y = margin
@@ -402,6 +403,55 @@ def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
     y = draw_centered_text(canvas, SUBTITLE_TEXT, y + 8, subtitle_font, color=None,
                            shadow_offset=(3,3), max_width=int(page_w*0.92), line_gap=10)
     y += 24
+
+    # --- Featured Acharya Mode ---
+    if featured_acharya_mode and founders_pairs:
+        featured_acharya = founders_pairs.pop(0)
+        img_path, caption = featured_acharya
+
+        # Draw the featured acharya, scaled to be prominent
+        # The size of the featured image MUST also scale down during auto-fit attempts.
+        featured_img_w = int(page_w * 0.25 * (img_scale / 0.68))
+        featured_img_h = int(featured_img_w * 1.2)
+
+        try:
+            im = Image.open(img_path).convert("RGB")
+        except Exception:
+            im = Image.new("RGB", (featured_img_w, featured_img_h), (230,230,230))
+
+        iw, ih = im.size
+        scale = min(featured_img_w/iw, featured_img_h/ih)
+        w, h = max(1, int(iw*scale)), max(1, int(ih*scale))
+        im = im.resize((w,h), Image.LANCZOS)
+
+        # Gold oval mask
+        mask = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(mask).ellipse([0,0,w-1,h-1], fill=255)
+        im_oval = Image.new("RGBA", (w, h))
+        im_oval.paste(im, (0,0), mask=mask)
+
+        stroke = Image.new("RGBA", (w+4, h+4), (0,0,0,0))
+        ImageDraw.Draw(stroke).ellipse([0,0,w+3,h+3], outline=(212,175,55,255), width=3)
+
+        img_x = (page_w - w) // 2
+        img_y = y + 20
+        canvas.alpha_composite(stroke, (img_x-2, img_y-2))
+        canvas.alpha_composite(im_oval, (img_x, img_y))
+
+        y = img_y + h + 15
+
+        # Draw caption for featured acharya
+        cap_font = load_font(caption_font + 4) # Slightly larger caption font
+        cap_w, cap_h = _text_size(d, caption, cap_font)
+        bg_sample = canvas.crop(((page_w - cap_w)//2, y, (page_w + cap_w)//2, y + cap_h))
+        cap_color, cap_shadow_color = get_adaptive_colors(bg_sample)
+
+        tx = (page_w - cap_w) // 2
+        d.text((tx + 2, y + 2), caption, font=cap_font, fill=cap_shadow_color)
+        d.text((tx, y), caption, font=cap_font, fill=cap_color)
+
+        y += cap_h + 40
+    # --- End Featured Acharya Mode ---
 
     # Grid geometry
     total_gutter_width = (num_cols - 1) * gutter_x
@@ -517,14 +567,14 @@ def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
         idx += num_cols
 
     # Footer (no border)
-    footer_y = min(page_h - 140, y + 24)
+    footer_y = y + 24 # Use the actual y-position to check for overflow
     draw_centered_text(canvas, FOOTER_TEXT, footer_y, footer_font, color=None,
                        shadow_offset=(4,4),
                        max_width=int(page_w*0.92))
 
     return canvas.convert("RGB"), footer_y
 
-def render_grid_poster_A2(
+def render_with_auto_fit(
         page_w: int = 4961, page_h: int = 7016,    # A2 ~300dpi
         margin: int = 90,
         num_cols: int = 6,
@@ -540,35 +590,44 @@ def render_grid_poster_A2(
         section2_sub_size: int = 58,
         banner_max_height_fraction: float = 0.05,   # 5% strict cap by default,
         parchment_brightness: float = 1.0,
-        parchment_mode: str = 'tile'
+        parchment_mode: str = 'tile',
+        featured_acharya_mode: bool = True
     ) -> Optional[Image.Image]:
     """
     Renders once; if the layout overflows the page, auto-retries with slightly smaller images.
     Returns the final rendered image.
     """
-    # Auto-fit retry loop
-    attempts = 6
-    scale = img_scale
+    # Auto-fit by starting small and finding the largest scale that fits.
     best_img = None
-    for i in range(attempts):
-        img, footer_y = render_once_A2(page_w, page_h, margin, num_cols, gutter_x, row_gap,
-                                       title_font, subtitle_font, caption_font, footer_font,
-                                       scale, section_gap_extra, section2_title_size,
-                                       section2_sub_size, banner_max_height_fraction, parchment_brightness, parchment_mode)
-        best_img = img
-        # keep a 120px safety margin at the bottom
-        if footer_y <= page_h - 120:
-            break
-        # shrink a bit and try again
-        scale = max(0.60, round(scale - 0.02, 3))
-        print(f">>> Reflow (attempt {i+2}/{attempts}) — reducing img_scale to {scale}")
+    start_scale, end_scale, step = 0.40, 0.70, 0.01
+    
+    # Generate a list of scales to test, from small to large.
+    scales_to_try = []
+    current_scale = start_scale
+    while current_scale <= end_scale:
+        scales_to_try.append(round(current_scale, 2))
+        current_scale += step
+
+    print(f">>> Starting auto-fit process, testing scales from {start_scale} to {end_scale}...")
+    for scale in scales_to_try:
+        img, footer_y = render_once_A2(
+            page_w, page_h, margin, num_cols, gutter_x, row_gap, title_font, subtitle_font,
+            caption_font, footer_font, scale, section_gap_extra, section2_title_size,
+            section2_sub_size, banner_max_height_fraction, parchment_brightness,
+            parchment_mode, featured_acharya_mode)
+        if footer_y <= page_h - 120: # Check if it fits with a safety margin
+            print(f">>> Scale {scale:.2f} fits.")
+            best_img = img # This scale is good, save the result
+        else:
+            print(f">>> Scale {scale:.2f} overflows. Using previous best fit.")
+            break # This scale is too big, stop and use the last one that fit
     return best_img
 
 # --------------------------------------------------------------------
 # Main — A2 only
 # --------------------------------------------------------------------
 def main():
-    final_image = render_grid_poster_A2(
+    final_image = render_with_auto_fit(
         page_w=4961, page_h=7016,   # A2 @ ~300dpi
         margin=90,
         num_cols=6,
@@ -584,7 +643,8 @@ def main():
         section2_sub_size=58, 
         banner_max_height_fraction=0.05,
         parchment_brightness=0.85,        # < 1.0 is darker, > 1.0 is brighter
-        parchment_mode='stretch'             # Background mode. Options: 'tile' (repeats small image) or 'stretch' (resizes image to fit).
+        parchment_mode='stretch',         # Background mode. Options: 'tile' or 'stretch'.
+        featured_acharya_mode=True        # If True, places the first founder centered at the top.
     )
 
     if final_image:
