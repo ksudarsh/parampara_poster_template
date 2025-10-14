@@ -35,6 +35,33 @@ SECTION2_TITLE  = "Sri Parakāla Jeeyars"
 SECTION2_SUB    = "Lineage of Brahmatantra Svatantra Swamis"
 
 # --------------------------------------------------------------------
+# Style Configuration
+# --------------------------------------------------------------------
+# Font Weights: "Bold" or "Normal"
+TITLE_FONT_WEIGHT    = "Bold"
+SUBTITLE_FONT_WEIGHT = "Bold"
+SECTION_FONT_WEIGHT  = "Bold"
+FOOTER_FONT_WEIGHT   = "Bold"
+
+# Shadow Color and Opacity
+SHADOW_COLOR_HEX = "#808080"  # Medium Gray. Use any 6-digit hex color.
+SHADOW_OPACITY   = 180         # Shadow opacity (0-255).
+
+# Shadow direction: "NW", "NE", "SW", "SE", or "CE" (center, no shadow)
+# This controls the apparent light source for all text shadows.
+# "NW" means light comes from North-West, so shadow is cast to South-East.
+SHADOW_DIRECTION = "NW"
+
+# Layout & Background
+PARCHMENT_MODE          = 'stretch'  # Background mode. Options: 'tile' or 'stretch'.
+PARCHMENT_BRIGHTNESS    = 0.85       # < 1.0 is darker, > 1.0 is brighter.
+FEATURED_ACHARYA_MODE   = True       # If True, places the first founder centered at the top.
+
+
+def _hex_to_rgb(h): return tuple(int(h.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+SHADOW_COLOR_OVERRIDE = (*_hex_to_rgb(SHADOW_COLOR_HEX), SHADOW_OPACITY)
+
+# --------------------------------------------------------------------
 # Paths
 # --------------------------------------------------------------------
 HERE        = os.path.dirname(os.path.abspath(__file__))
@@ -103,15 +130,27 @@ def _try_load_font(size: int, candidates: List[str]) -> Optional[ImageFont.FreeT
                 pass
     return None
 
-def load_font(size: int) -> ImageFont.FreeTypeFont:
-    preferred_names = [
-        "GentiumPlus-Regular.ttf",
-        "GentiumBookPlus-Regular.ttf",
-        "NotoSerif-Regular.ttf",
-        "DejaVuSerif.ttf",
-    ]
+def load_font(size: int, weight: str = 'normal') -> ImageFont.FreeTypeFont:
+    weight_map = {
+        'normal': [
+            "GentiumPlus-Regular.ttf", "GentiumBookPlus-Regular.ttf",
+            "NotoSerif-Regular.ttf", "DejaVuSerif.ttf"
+        ],
+        'bold': [
+            "GentiumPlus-Bold.ttf", "GentiumBookPlus-Bold.ttf",
+            "NotoSerif-Bold.ttf", "DejaVuSerif-Bold.ttf"
+        ]
+    }
+    preferred_names = weight_map.get(weight.lower(), weight_map['normal'])
+
     found = _find_fonts_recursively(FONTS_DIR)
-    preferred = [p for name in preferred_names for p in found if os.path.basename(p).lower() == name.lower()]
+    
+    # Find preferred fonts, case-insensitively
+    preferred_names_lower = [name.lower() for name in preferred_names]
+    preferred = [p for p in found if os.path.basename(p).lower() in preferred_names_lower]
+    # Sort them to match the preferred_names order
+    preferred.sort(key=lambda p: preferred_names_lower.index(os.path.basename(p).lower()))
+
     others    = [p for p in found if p not in preferred]
     f = _try_load_font(size, preferred + others)
     if f:
@@ -119,14 +158,14 @@ def load_font(size: int) -> ImageFont.FreeTypeFont:
 
     system_candidates = [
         r"C:\Windows\Fonts\GentiumPlus-Regular.ttf",
-        r"C:\Windows\Fonts\GentiumBookPlus-Regular.ttf",
-        r"C:\Windows\Fonts\NotoSerif-Regular.ttf",
-        r"C:\Windows\Fonts\DejaVuSerif.ttf",
+        r"C:\Windows\Fonts\GentiumPlus-Bold.ttf",
+        r"C:\Windows\Fonts\NotoSerif-Bold.ttf",
+        r"C:\Windows\Fonts\NotoSerif-Regular.ttf", # Fallback
         r"C:\Windows\Fonts\Cambria.ttc",
         r"C:\Windows\Fonts\times.ttf",
         r"C:\Windows\Fonts\Nirmala.ttf",
         "/Library/Fonts/GentiumPlus-Regular.ttf",
-        "/Library/Fonts/NotoSerif-Regular.ttf",
+        "/Library/Fonts/NotoSerif-Bold.ttf",
         "/Library/Fonts/Times New Roman.ttf",
         "/usr/share/fonts/truetype/gentiumplus/GentiumPlus-Regular.ttf",
         "/usr/share/fonts/truetype/noto/NotoSerif-Regular.ttf",
@@ -172,14 +211,31 @@ def get_adaptive_colors(background_sample: Image.Image) -> Tuple[Tuple[int,int,i
     else:
         return light_text, dark_shadow # Light text on dark background
 
+def get_shadow_offset(base_offset: int) -> Tuple[int, int]:
+    """Calculates shadow (x, y) offset based on global SHADOW_DIRECTION."""
+    direction = SHADOW_DIRECTION.upper()
+    if direction == "NW": # Light from NW, shadow to SE
+        return (base_offset, base_offset)
+    elif direction == "NE": # Light from NE, shadow to SW
+        return (-base_offset, base_offset)
+    elif direction == "SW": # Light from SW, shadow to NE
+        return (base_offset, -base_offset)
+    elif direction == "SE": # Light from SE, shadow to NW
+        return (-base_offset, -base_offset)
+    else: # "CE" or unknown, no shadow
+        return (0, 0)
+
 def draw_centered_text(img: Image.Image, text: str, y: int, size: int, color,
                        max_width: Optional[int] = None, line_gap: int = 10,
-                       shadow_color: Optional[Tuple[int,int,int]] = None,
-                       shadow_offset: Tuple[int,int] = (3,3)) -> int:
+                       shadow_strength: int = 3,
+                       font_weight: str = 'normal') -> int:
     if not text:
         return y
+
+    shadow_offset = get_shadow_offset(shadow_strength)
+    shadow_color = None # Will be determined later
     d = ImageDraw.Draw(img)
-    font = load_font(size)
+    font = load_font(size, weight=font_weight)
     use_adaptive_color = color is None
 
     def _draw(x_pos, y_pos, txt, fill):
@@ -190,7 +246,11 @@ def draw_centered_text(img: Image.Image, text: str, y: int, size: int, color,
         x = (img.width - w) // 2
         if use_adaptive_color:
             bg_sample = img.crop((x, y, x + w, y + h))
-            color, shadow_color = get_adaptive_colors(bg_sample)
+            color, adaptive_shadow_color = get_adaptive_colors(bg_sample)
+            if SHADOW_COLOR_OVERRIDE:
+                shadow_color = SHADOW_COLOR_OVERRIDE
+        elif SHADOW_COLOR_OVERRIDE:
+            shadow_color = SHADOW_COLOR_OVERRIDE
 
         if shadow_color:
             _draw(x + shadow_offset[0], y + shadow_offset[1], text, shadow_color)
@@ -216,7 +276,9 @@ def draw_centered_text(img: Image.Image, text: str, y: int, size: int, color,
         if use_adaptive_color:
             # Sample background for each line for maximum accuracy on gradients
             bg_sample = img.crop((x, y0, x + lw, y0 + lh))
-            color, shadow_color = get_adaptive_colors(bg_sample)
+            color, adaptive_shadow_color = get_adaptive_colors(bg_sample)
+            if SHADOW_COLOR_OVERRIDE:
+                shadow_color = SHADOW_COLOR_OVERRIDE
 
         if shadow_color:
             _draw(x + shadow_offset[0], y0 + shadow_offset[1], li, shadow_color)
@@ -305,10 +367,11 @@ def draw_separator_block(canvas: Image.Image, y: int,
     d.line((margin, y_line, canvas.width - margin, y_line), fill=line_color, width=3)
     y0 = y_line + 18
     y0 = draw_centered_text(canvas, title_main, y0, main_size, color=None,
-                           shadow_offset=(4,4),
+                           shadow_strength=4, font_weight=SECTION_FONT_WEIGHT,
                            max_width=int(canvas.width*0.92), line_gap=8)
     y0 = draw_centered_text(canvas, title_sub, y0, sub_size, color=None,
-                           shadow_offset=(3,3), max_width=int(canvas.width*0.92), line_gap=8)
+                           shadow_strength=3, font_weight=SECTION_FONT_WEIGHT,
+                           max_width=int(canvas.width*0.92), line_gap=8)
     return y0 + 10
 
 # --------------------------------------------------------------------
@@ -397,11 +460,12 @@ def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
     y = draw_banner(canvas, y, page_w, margin,
                     max_height_fraction=banner_max_height_fraction,
                     feather_radius=44, gold_tint_alpha=48, desaturate=0.88)
-    y = draw_centered_text(canvas, TITLE_TEXT, y, title_font, color=None, # color=None triggers adaptive mode
-                           shadow_offset=(5, 5),
+    y = draw_centered_text(canvas, TITLE_TEXT, y, title_font, color=None,
+                           shadow_strength=5, font_weight=TITLE_FONT_WEIGHT,
                            max_width=int(page_w*0.92), line_gap=12)
     y = draw_centered_text(canvas, SUBTITLE_TEXT, y + 8, subtitle_font, color=None,
-                           shadow_offset=(3,3), max_width=int(page_w*0.92), line_gap=10)
+                           shadow_strength=3, font_weight=SUBTITLE_FONT_WEIGHT,
+                           max_width=int(page_w*0.92), line_gap=10)
     y += 24
 
     # --- Featured Acharya Mode ---
@@ -569,7 +633,7 @@ def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
     # Footer (no border)
     footer_y = y + 24 # Use the actual y-position to check for overflow
     draw_centered_text(canvas, FOOTER_TEXT, footer_y, footer_font, color=None,
-                       shadow_offset=(4,4),
+                       shadow_strength=4, font_weight=FOOTER_FONT_WEIGHT,
                        max_width=int(page_w*0.92))
 
     return canvas.convert("RGB"), footer_y
@@ -642,9 +706,9 @@ def main():
         section2_title_size=110,
         section2_sub_size=58, 
         banner_max_height_fraction=0.05,
-        parchment_brightness=0.85,        # < 1.0 is darker, > 1.0 is brighter
-        parchment_mode='stretch',         # Background mode. Options: 'tile' or 'stretch'.
-        featured_acharya_mode=False        # If True, places the first founder centered at the top.
+        parchment_brightness=PARCHMENT_BRIGHTNESS,
+        parchment_mode=PARCHMENT_MODE,
+        featured_acharya_mode=FEATURED_ACHARYA_MODE
     )
 
     if final_image:
