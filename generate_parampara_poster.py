@@ -52,7 +52,7 @@ OUT_A2 = os.path.join(HERE, "Sri_Parakala_Matham_Guru_Parampara_GRID_A2.png")
 # Banner search (prefers images/Parakala Matham Banner.jpg)
 # --------------------------------------------------------------------
 def find_banner_path() -> Optional[str]:
-    specific = os.path.join(IMAGES_DIR, "Parakala Matham Banner.jpg")
+    specific = os.path.join(ASSETS_DIR, "Parakala_Matham_Banner.png")
     if os.path.isfile(specific):
         return specific
 
@@ -644,7 +644,7 @@ def main():
         banner_max_height_fraction=0.05,
         parchment_brightness=0.85,        # < 1.0 is darker, > 1.0 is brighter
         parchment_mode='stretch',         # Background mode. Options: 'tile' or 'stretch'.
-        featured_acharya_mode=True        # If True, places the first founder centered at the top.
+        featured_acharya_mode=False        # If True, places the first founder centered at the top.
     )
 
     if final_image:
