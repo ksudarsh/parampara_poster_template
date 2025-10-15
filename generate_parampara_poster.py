@@ -31,7 +31,7 @@ SUBTITLE_TEXT   = "Established by Sri Vedanta Desika in 1359 CE"
 FOOTER_TEXT     = "Sri Parakala Matham – The Eternal Lineage of Sri Vedanta Desika"
 
 # Section 2 heading (two lines: large main title + subtitle)
-SECTION2_TITLE  = "Sri Parakāla Jeeyars"
+SECTION2_TITLE  = "Sri Parakāla Acharyas"
 SECTION2_SUB    = "Lineage of Brahmatantra Svatantra Swamis"
 
 # --------------------------------------------------------------------
@@ -52,7 +52,12 @@ SHADOW_OPACITY   = 180         # Shadow opacity (0-255).
 # "NW" means light comes from North-West, so shadow is cast to South-East.
 SHADOW_DIRECTION = "NW"
 
+# Image Shadow Effects
+IMAGE_SHADOW_STRENGTH = 6  # How far the shadow is offset from the image.
+IMAGE_SHADOW_BLUR = 8     # How much to blur the shadow.
+
 # Layout & Background
+OVERLAY_CORNERS         = ["NW", "NE", "SW", "SE"] # A list of corners for overlays: "NW", "NE", "SW", "SE".
 PARCHMENT_MODE          = 'stretch'  # Background mode. Options: 'tile' or 'stretch'.
 PARCHMENT_BRIGHTNESS    = 0.85       # < 1.0 is darker, > 1.0 is brighter.
 FEATURED_ACHARYA_MODE   = True       # If True, places the first founder centered at the top.
@@ -298,28 +303,41 @@ def tile_mandala_over(canvas: Image.Image, tile_path: str, opacity: int = 32):
         for x in range(0, canvas.width, tw):
             canvas.alpha_composite(tile, (x, y))
 
-def draw_corner_overlays(canvas: Image.Image, assets_dir: str):
+def draw_corner_overlays(canvas: Image.Image, assets_dir: str, corners: List[str]):
     """
-    Draws a transparent overlay PNG onto the top-left and top-right corners.
-    The right corner overlay is flipped horizontally for symmetry.
+    Draws a transparent overlay PNG onto the specified corners of the canvas.
+    Handles flipping and rotation for correct orientation.
     """
+    if not corners:
+        return
+
     overlay_path = os.path.join(assets_dir, "overlay.png")
     if not os.path.isfile(overlay_path):
-        # Silently skip if not found, as it's an optional decorative element.
         return
 
     try:
-        overlay = Image.open(overlay_path).convert("RGBA")
+        base_overlay = Image.open(overlay_path).convert("RGBA")
     except Exception as e:
         print(f">>> Warning: Could not load 'overlay.png'. Error: {e}")
         return
 
-    # Top-left corner
-    canvas.alpha_composite(overlay, (0, 0))
+    w, h = base_overlay.size
+    corners_set = {c.upper() for c in corners}
 
-    # Top-right corner (flipped horizontally)
-    overlay_flipped = overlay.transpose(Image.FLIP_LEFT_RIGHT)
-    canvas.alpha_composite(overlay_flipped, (canvas.width - overlay_flipped.width, 0))
+    if "NW" in corners_set: # Top-left
+        canvas.alpha_composite(base_overlay, (0, 0))
+
+    if "NE" in corners_set: # Top-right
+        overlay_ne = base_overlay.transpose(Image.FLIP_LEFT_RIGHT)
+        canvas.alpha_composite(overlay_ne, (canvas.width - w, 0))
+
+    if "SW" in corners_set: # Bottom-left
+        overlay_sw = base_overlay.transpose(Image.FLIP_TOP_BOTTOM)
+        canvas.alpha_composite(overlay_sw, (0, canvas.height - h))
+
+    if "SE" in corners_set: # Bottom-right
+        overlay_se = base_overlay.transpose(Image.ROTATE_180)
+        canvas.alpha_composite(overlay_se, (canvas.width - w, canvas.height - h))
 
 def draw_banner(canvas: Image.Image, y: int, page_w: int, margin: int,
                 max_height_fraction: float = 0.05,  # STRICT cap (5% of page height by default)
@@ -352,10 +370,26 @@ def draw_banner(canvas: Image.Image, y: int, page_w: int, margin: int,
         conv = ImageEnhance.Color(banner)
         banner = conv.enhance(desaturate)
 
+    # --- Add Shadow ---
+    if IMAGE_SHADOW_STRENGTH > 0 and IMAGE_SHADOW_BLUR > 0:
+        # Create a shadow from the banner's alpha channel
+        shadow_alpha = banner.getchannel('A')
+        shadow_layer = Image.new("RGBA", banner.size, SHADOW_COLOR_OVERRIDE)
+        shadow_layer.putalpha(shadow_alpha)
+
+        # Blur the shadow
+        shadow_blurred = shadow_layer.filter(ImageFilter.GaussianBlur(radius=IMAGE_SHADOW_BLUR))
+
+        # Composite the shadow with an offset
+        shadow_offset = get_shadow_offset(IMAGE_SHADOW_STRENGTH)
+        shadow_x = (canvas.width - banner.width) // 2 + shadow_offset[0]
+        shadow_y = y + shadow_offset[1]
+        canvas.alpha_composite(shadow_blurred, (shadow_x, shadow_y))
+
     # Composite centered using alpha channel
     x = (canvas.width - banner.width)//2
     canvas.alpha_composite(banner, (x, y))
-    return y + banner.height + 20  # small spacing after banner
+    return y + banner.height + 5  # Reduced spacing after banner
 
 def draw_separator_block(canvas: Image.Image, y: int,
                          title_main: str, title_sub: str,
@@ -452,7 +486,7 @@ def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
         parchment = Image.new("RGB", (page_w, page_h), (250, 240, 220))
     canvas = parchment.convert("RGBA")
     tile_mandala_over(canvas, MANDALA_TILE_PATH, opacity=32)
-    draw_corner_overlays(canvas, ASSETS_DIR)
+    draw_corner_overlays(canvas, ASSETS_DIR, OVERLAY_CORNERS)
     d = ImageDraw.Draw(canvas)
 
     # Banner → Title → Subtitle
@@ -496,6 +530,20 @@ def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
 
         stroke = Image.new("RGBA", (w+4, h+4), (0,0,0,0))
         ImageDraw.Draw(stroke).ellipse([0,0,w+3,h+3], outline=(212,175,55,255), width=3)
+
+        # --- Add Shadow ---
+        if IMAGE_SHADOW_STRENGTH > 0 and IMAGE_SHADOW_BLUR > 0:
+            # Create a shadow from the oval mask
+            shadow_layer = Image.new("RGBA", im_oval.size, SHADOW_COLOR_OVERRIDE)
+            shadow_layer.putalpha(mask)
+            shadow_blurred = shadow_layer.filter(ImageFilter.GaussianBlur(radius=IMAGE_SHADOW_BLUR))
+
+            # Composite the shadow with an offset
+            shadow_offset = get_shadow_offset(IMAGE_SHADOW_STRENGTH)
+            shadow_x = (page_w - w) // 2 + shadow_offset[0]
+            shadow_y = y + 20 + shadow_offset[1]
+            canvas.alpha_composite(shadow_blurred, (shadow_x, shadow_y))
+        # --- End Shadow ---
 
         img_x = (page_w - w) // 2
         img_y = y + 20
@@ -550,6 +598,20 @@ def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
         stroke = Image.new("RGBA", (w+4, h+4), (0,0,0,0))
         sd = ImageDraw.Draw(stroke)
         sd.ellipse([0,0,w+3,h+3], outline=(212,175,55,255), width=2)
+
+        # --- Add Shadow ---
+        if IMAGE_SHADOW_STRENGTH > 0 and IMAGE_SHADOW_BLUR > 0:
+            # Create a shadow from the oval mask
+            shadow_layer = Image.new("RGBA", im_oval.size, SHADOW_COLOR_OVERRIDE)
+            shadow_layer.putalpha(mask)
+            shadow_blurred = shadow_layer.filter(ImageFilter.GaussianBlur(radius=IMAGE_SHADOW_BLUR))
+
+            # Composite the shadow with an offset
+            shadow_offset = get_shadow_offset(IMAGE_SHADOW_STRENGTH)
+            shadow_x = x + (cell_w - w) // 2 + shadow_offset[0]
+            shadow_y = y + shadow_offset[1]
+            canvas.alpha_composite(shadow_blurred, (shadow_x, shadow_y))
+        # --- End Shadow ---
 
         img_x = x + (cell_w - w)//2
         img_y = y
@@ -661,31 +723,62 @@ def render_with_auto_fit(
     Renders once; if the layout overflows the page, auto-retries with slightly smaller images.
     Returns the final rendered image.
     """
-    # Auto-fit by starting small and finding the largest scale that fits.
-    best_img = None
-    start_scale, end_scale, step = 0.40, 0.70, 0.01
-    
-    # Generate a list of scales to test, from small to large.
-    scales_to_try = []
-    current_scale = start_scale
-    while current_scale <= end_scale:
-        scales_to_try.append(round(current_scale, 2))
-        current_scale += step
+    # --- 1. Determine required bottom margin ---
+    # Start with a base padding, then add space for overlays if needed.
+    required_bottom_space = 40  # Base padding from page edge
+    if any(c.upper() in ["SW", "SE"] for c in OVERLAY_CORNERS):
+        overlay_path = os.path.join(ASSETS_DIR, "overlay.png")
+        if os.path.isfile(overlay_path):
+            try:
+                h = Image.open(overlay_path).height
+                required_bottom_space = max(required_bottom_space, h + 20)
+                print(f">>> Reserving {h+20}px at bottom for corner overlays.")
+            except Exception:
+                pass
 
-    print(f">>> Starting auto-fit process, testing scales from {start_scale} to {end_scale}...")
-    for scale in scales_to_try:
-        img, footer_y = render_once_A2(
-            page_w, page_h, margin, num_cols, gutter_x, row_gap, title_font, subtitle_font,
-            caption_font, footer_font, scale, section_gap_extra, section2_title_size,
-            section2_sub_size, banner_max_height_fraction, parchment_brightness,
-            parchment_mode, featured_acharya_mode)
-        if footer_y <= page_h - 120: # Check if it fits with a safety margin
-            print(f">>> Scale {scale:.2f} fits.")
-            best_img = img # This scale is good, save the result
-        else:
-            print(f">>> Scale {scale:.2f} overflows. Using previous best fit.")
-            break # This scale is too big, stop and use the last one that fit
-    return best_img
+    # Add space for the footer text itself.
+    # We create a dummy canvas to measure the wrapped footer text height accurately.
+    dummy_draw = ImageDraw.Draw(Image.new("RGB", (1,1)))
+    footer_font_obj = load_font(footer_font, weight=FOOTER_FONT_WEIGHT)
+    footer_text_height = dummy_draw.textbbox((0,0), FOOTER_TEXT, font=footer_font_obj)[3] # Simplified height
+    required_bottom_space += footer_text_height + 24 # 24px is the gap above footer
+
+    # --- 2. Two-Pass Auto-Fit ---
+    # Pass 1: Render with a large scale to measure overflow.
+    print(">>> Auto-fit Pass 1: Measuring layout with a large scale...")
+    ideal_scale = 0.80  # A deliberately large scale likely to overflow
+    _, content_end_y = render_once_A2(
+        page_w, page_h, margin, num_cols, gutter_x, row_gap, title_font, subtitle_font,
+        caption_font, footer_font, ideal_scale, section_gap_extra, section2_title_size,
+        section2_sub_size, banner_max_height_fraction, parchment_brightness,
+        parchment_mode, featured_acharya_mode)
+
+    target_y = page_h - required_bottom_space
+    overflow_pixels = content_end_y - target_y
+
+    # --- 3. Calculate Optimal Scale ---
+    if overflow_pixels > 0:
+        print(f">>> Layout overflows by {overflow_pixels} pixels at ideal scale.")
+        # This is a heuristic: assume overflow is proportional to image scale.
+        # We calculate how much we need to shrink the scale to eliminate the overflow.
+        # The 'content_end_y' is the total height used, so we find the reduction factor.
+        reduction_factor = (target_y / content_end_y)
+        final_scale = ideal_scale * reduction_factor
+        print(f">>> Calculating optimal scale: {final_scale:.3f}")
+    else:
+        # It fits even at the ideal scale, so we can use that.
+        final_scale = ideal_scale
+        print(">>> Layout fits perfectly. No scaling adjustment needed.")
+
+    # --- 4. Final Render ---
+    print(f">>> Auto-fit Pass 2: Rendering final poster with scale {final_scale:.3f}...")
+    final_image, _ = render_once_A2(
+        page_w, page_h, margin, num_cols, gutter_x, row_gap, title_font, subtitle_font,
+        caption_font, footer_font, final_scale, section_gap_extra, section2_title_size,
+        section2_sub_size, banner_max_height_fraction, parchment_brightness,
+        parchment_mode, featured_acharya_mode)
+
+    return final_image
 
 # --------------------------------------------------------------------
 # Main — A2 only
