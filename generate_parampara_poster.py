@@ -485,8 +485,9 @@ def render_once_A2(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
         cap_font = load_font(42, weight=FOOTER_FONT_WEIGHT)
         lw,lh = _text_size(d, featured["caption"], cap_font)
         bg = canvas.crop(((page_w-lw)//2, y2, (page_w+lw)//2, y2+lh))
-        fg,sh = get_adaptive_colors(bg)
-        d.text(((page_w-lw)//2+2, y2+2), featured["caption"], font=cap_font, fill=sh)
+        fg, sh_color_base = get_adaptive_colors(bg)
+        s_off = get_shadow_offset(2) # Use global direction
+        d.text(((page_w-lw)//2+s_off[0], y2+s_off[1]), featured["caption"], font=cap_font, fill=sh_color_base)
         d.text(((page_w-lw)//2,   y2),   featured["caption"], font=cap_font, fill=fg)
         y = y2 + lh + 28
 
@@ -557,12 +558,13 @@ def render_once_A2(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
                 max_lw = max(_text_size(measurer, li, cap_font)[0] for li in lines)
                 total_h = sum(_text_size(measurer, li, cap_font)[1] for li in lines) + (len(lines)-1)*3
                 bg = canvas.crop((x+(cell_w-max_lw)//2, ty, x+(cell_w-max_lw)//2+max_lw, ty+total_h))
-                fg,sh = get_adaptive_colors(bg)
+                fg, sh_color_base = get_adaptive_colors(bg)
             else:
-                fg,sh = (70,50,0),(30,20,0)
+                fg, sh_color_base = (70,50,0),(30,20,0)
+            s_off = get_shadow_offset(2) # Use global direction
             for li in lines:
                 lw,lh=_text_size(measurer, li, cap_font); tx=x+(cell_w-lw)//2
-                d.text((tx+2, ty+2), li, font=cap_font, fill=sh)
+                d.text((tx+s_off[0], ty+s_off[1]), li, font=cap_font, fill=sh_color_base)
                 d.text((tx,   ty  ), li, font=cap_font, fill=fg)
                 ty += lh + 3
             print_font_choice_once()
@@ -640,12 +642,13 @@ def render_once_A2(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
             max_lw = max(_text_size(d, li, cap_font)[0] for li in lines)
             total_h = sum(_text_size(d, li, cap_font)[1] for li in lines) + (len(lines)-1)*3
             bg = canvas.crop((x+(cell_w-max_lw)//2, ty, x+(cell_w-max_lw)//2+max_lw, ty+total_h))
-            fg,sh = get_adaptive_colors(bg)
+            fg, sh_color_base = get_adaptive_colors(bg)
         else:
-            fg,sh=(70,50,0),(30,20,0)
+            fg, sh_color_base = (70,50,0),(30,20,0)
+        s_off = get_shadow_offset(2) # Use global direction
         for li in lines:
             lw,lh=_text_size(d, li, cap_font); tx=x+(cell_w-lw)//2
-            ImageDraw.Draw(canvas).text((tx+2,ty+2), li, font=cap_font, fill=sh)
+            ImageDraw.Draw(canvas).text((tx+s_off[0],ty+s_off[1]), li, font=cap_font, fill=sh_color_base)
             ImageDraw.Draw(canvas).text((tx,  ty  ), li, font=cap_font, fill=fg)
             ty += lh + 3
         print_font_choice_once()
@@ -690,7 +693,7 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
     dummy = ImageDraw.Draw(Image.new("RGB",(1,1)))
     fnt = load_font(footer_font, weight=FOOTER_FONT_WEIGHT)
     footer_h = dummy.textbbox((0,0), FOOTER_TEXT, font=fnt)[3]
-    required_bottom_space = footer_h + 40
+    required_bottom_space = footer_h + margin # Reserve space for footer + bottom margin
 
     ideal_scale = 0.72
     _, end_y = render_once_A2(page_w,page_h,margin,num_cols,gutter_x,row_gap,title_font,subtitle_font,
