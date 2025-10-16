@@ -178,10 +178,6 @@ def tile_mandala_over(canvas, tile_path, opacity=32):
 
 def find_banner_path() -> Optional[str]:
     prefer = [
-        os.path.join(IMAGES_DIR, "Parakala Matham Banner.jpg"),
-        os.path.join(IMAGES_DIR, "Parakala_Matham_Banner.jpg"),
-        os.path.join(IMAGES_DIR, "Parakala Matham Banner.jpeg"),
-        os.path.join(IMAGES_DIR, "Parakala_Matham_Banner.jpeg"),
         os.path.join(IMAGES_DIR, "Parakala Matham Banner.png"),
         os.path.join(IMAGES_DIR, "Parakala_Matham_Banner.png"),
     ]
@@ -200,24 +196,23 @@ def draw_banner(canvas, y, page_w, margin, max_height_fraction=0.05, feather_rad
     width_cap  = page_w - 2*margin
     height_cap = int(canvas.height*max_height_fraction)
     s = min(width_cap/b.width, height_cap/b.height, 1.0)
-    new_w, new_h = max(1, int(b.width*s)), max(1, int(b.height*s))
-    b = b.resize((new_w,new_h), Image.LANCZOS)
-    if desaturate != 1.0: b = ImageEnhance.Color(b).enhance(desaturate)
-    if gold_tint_alpha>0:
-        tint = Image.new("RGBA", b.size, (212,175,55,gold_tint_alpha))
-        b = Image.alpha_composite(b, tint)
-    mask = Image.new("L", b.size, 255)
-    m = ImageDraw.Draw(mask); edge = feather_radius
-    m.rectangle([edge,edge,b.width-edge,b.height-edge], fill=255)
-    mask = mask.filter(ImageFilter.GaussianBlur(radius=edge))
-    r,g,bb,a0 = b.split(); b = Image.merge("RGBA",(r,g,bb,mask))
+    if s < 1.0:
+        new_w, new_h = max(1, int(b.width*s)), max(1, int(b.height*s))
+        b = b.resize((new_w,new_h), Image.LANCZOS)
+    
+    new_w, new_h = b.size
+    
     if IMAGE_SHADOW_STRENGTH>0 and IMAGE_SHADOW_BLUR>0:
+        # Create a shadow from the image's alpha channel
+        mask = b.getchannel('A')
         sh_col = (40,25,10,150) if not SHADOW_COLOR_HEX else (*_hex_to_rgb(SHADOW_COLOR_HEX), SHADOW_OPACITY)
-        sh = Image.new("RGBA", b.size, sh_col); sh.putalpha(mask)
+        sh = Image.new("RGBA", b.size, sh_col)
+        sh.putalpha(mask)
         sh = sh.filter(ImageFilter.GaussianBlur(radius=IMAGE_SHADOW_BLUR))
         off = get_shadow_offset(IMAGE_SHADOW_STRENGTH)
         sx = (canvas.width-new_w)//2 + off[0]; sy = y + off[1]
         canvas.alpha_composite(sh,(sx,sy))
+
     x = (canvas.width-new_w)//2
     canvas.alpha_composite(b, (x,y))
     return y + new_h + 20
