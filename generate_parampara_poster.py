@@ -47,6 +47,7 @@ PARCHMENT_MODE        = "stretch"
 PARCHMENT_BRIGHTNESS  = 0.85
 FEATURED_ACHARYA_MODE = True  # F00 on top
 SHOW_SIGNATURE        = True   # set False to suppress signature rendering
+SIGNATURE_POSITION    = 6/8    # Horizontal position on footer line (0.0=left, 1.0=right). Default 6/8.
 
 ALLOW_JPG_IMAGES      = True
 IMG_EXTS              = (".png", ".jpg", ".jpeg") if ALLOW_JPG_IMAGES else (".png",)
@@ -628,19 +629,20 @@ def draw_footer_and_signature(canvas: Image.Image, page_w: int, page_h: int, mar
     # signature to the right of footer text on the same baseline
     if SHOW_SIGNATURE and os.path.isfile(SIGNATURE_PATH):
         try:
+            # Load and scale signature to fit footer height
             sig = Image.open(SIGNATURE_PATH).convert("RGBA")
-            # fit height to footer band
-            if sig.height > footer_h:
-                r = footer_h / sig.height
-                sig = sig.resize((max(1,int(sig.width*r)), footer_h), Image.LANCZOS)
+            max_sig_h = footer_h * 1.2 # Allow it to be slightly taller than text
+            if sig.height > max_sig_h:
+                r = max_sig_h / sig.height
+                sig = sig.resize((max(1,int(sig.width*r)), int(max_sig_h)), Image.LANCZOS)
 
-            right_available = (page_w - margin) - (tx + lw) - 12
-            if right_available > 0 and sig.width > right_available:
-                r = right_available / sig.width
-                sig = sig.resize((max(1,int(sig.width*r)), max(1,int(sig.height*r))), Image.LANCZOS)
-
-            sig_x = min(page_w - margin - sig.width, tx + lw + 12)
-            sig_y = footer_y
+            # Calculate position based on SIGNATURE_POSITION
+            drawable_width = page_w - 2*margin - sig.width
+            pos_frac = max(0.0, min(1.0, SIGNATURE_POSITION))
+            sig_x = margin + int(drawable_width * pos_frac)
+            
+            # Align baseline of signature with baseline of footer text
+            sig_y = footer_y + footer_h - sig.height
             canvas.alpha_composite(sig, (sig_x, sig_y))
         except Exception as e:
             print(f">>> WARNING: signature render failed: {e}")
