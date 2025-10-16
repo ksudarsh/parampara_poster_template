@@ -1,75 +1,48 @@
 # build_poster_from_xlsx.py
-# A2 grid poster generator with strict banner height cap, auto-fit grid, and diacritic-safe fonts
-# Output:
-#   Sri_Parakala_Matham_Guru_Parampara_GRID_A2.png  (6 columns; larger text)
-#
-# Order:
-#   17 Founders/Early Āchāryas (F01..F17*.png, sorted)  --> big section header: "Sri Parakāla Jeeyars"
-#   36 Parakāla Jeeyars (0100..3600*.png, sorted)
-#
-# Notes:
-#   - Captions taken AS-IS from Excel (two tabs)
-#   - Banner is feather-blended + warm gold tinted with a STRICT height cap
-#   - No border is drawn (prevents caption collisions at edges)
-#   - Auto-fit: if content overflows, image size is reduced and layout is retried
-#
-# Deps:
-#   pip install pillow pandas openpyxl
+# A2 poster: Founders (F00 featured; F01..F17 in exactly 2 rows with contemporaries)
+# + Parakāla Jeeyars (IDs 1..36 mapped to image prefixes 0100..3600).
+# Deps: pip install pillow pandas openpyxl
 
 import os, re, sys, glob, math
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 import pandas as pd
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 
-print(">>> Using Python interpreter:", sys.executable)
+print(">>> Python:", sys.executable)
 
-# --------------------------------------------------------------------
-# Text (diacritics preserved)
-# --------------------------------------------------------------------
+# ---------- Text ----------
 TITLE_TEXT      = "Sri Parakala Matham Guru Parampara"
 SUBTITLE_TEXT   = "Established by Sri Vedanta Desika in 1359 CE"
 FOOTER_TEXT     = "Sri Parakala Matham – The Eternal Lineage of Sri Vedanta Desika"
-
-# Section 2 heading (two lines: large main title + subtitle)
-SECTION2_TITLE  = "Sri Parakāla Acharyas"
+SECTION2_TITLE  = "Sri Parakāla Jeeyars"
 SECTION2_SUB    = "Lineage of Brahmatantra Svatantra Swamis"
 
-# --------------------------------------------------------------------
-# Style Configuration
-# --------------------------------------------------------------------
-# Font Weights: "Bold" or "Normal"
+# ---------- Style / Flags ----------
 TITLE_FONT_WEIGHT    = "Bold"
 SUBTITLE_FONT_WEIGHT = "Bold"
 SECTION_FONT_WEIGHT  = "Bold"
 FOOTER_FONT_WEIGHT   = "Bold"
 
-# Shadow Color and Opacity
-SHADOW_COLOR_HEX = "#808080"  # Medium Gray. Use any 6-digit hex color.
-SHADOW_OPACITY   = 180         # Shadow opacity (0-255).
+SHADOW_COLOR_HEX: Optional[str] = None  # None = adaptive
+SHADOW_OPACITY   = 180
+SHADOW_DIRECTION = "SW"  # NW, NE, SW, SE, CE
 
-# Shadow direction: "NW", "NE", "SW", "SE", or "CE" (center, no shadow)
-# This controls the apparent light source for all text shadows.
-# "NW" means light comes from North-West, so shadow is cast to South-East.
-SHADOW_DIRECTION = "SW"
+IMAGE_SHADOW_STRENGTH = 6
+IMAGE_SHADOW_BLUR     = 8
+MAGNIFY_FACTOR        = 1.10  # +10% for 'M' founders
 
-# Image Shadow Effects
-IMAGE_SHADOW_STRENGTH = 6  # How far the shadow is offset from the image.
-IMAGE_SHADOW_BLUR = 8     # How much to blur the shadow.
+FOUNDERS_ROWS         = 2
+OVERLAY_CORNERS       = []    # no corner overlays by default
+PARCHMENT_MODE        = "stretch"
+PARCHMENT_BRIGHTNESS  = 0.85
+FEATURED_ACHARYA_MODE = True  # F00 on top
+SHOW_SIGNATURE        = False
 
-# Layout & Background
-OVERLAY_CORNERS         = ["NW", "NE", "SW", "SE"] # A list of corners for overlays: "NW", "NE", "SW", "SE".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
-PARCHMENT_MODE          = 'stretch'  # Background mode. Options: 'tile' or 'stretch'.
-PARCHMENT_BRIGHTNESS    = 0.85       # < 1.0 is darker, > 1.0 is brighter.
-FEATURED_ACHARYA_MODE   = True       # If True, places the first founder centered at the top.
-SHOW_SIGNATURE          = True       # If True, adds assets/signature.png to the bottom-right.
+ALLOW_JPG_IMAGES      = True
+IMG_EXTS              = (".png", ".jpg", ".jpeg") if ALLOW_JPG_IMAGES else (".png",)
+RELAXED_MATCH_ANYWHERE = True  # match codes anywhere in filename
 
-
-def _hex_to_rgb(h): return tuple(int(h.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
-SHADOW_COLOR_OVERRIDE = (*_hex_to_rgb(SHADOW_COLOR_HEX), SHADOW_OPACITY)
-
-# --------------------------------------------------------------------
-# Paths
-# --------------------------------------------------------------------
+# ---------- Paths ----------
 HERE        = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR  = os.path.join(HERE, "assets")
 FONTS_DIR   = os.path.join(ASSETS_DIR, "fonts")
@@ -78,56 +51,24 @@ XLSX_PATH   = os.path.join(HERE, "acharyan_captions.xlsx")
 
 PARCHMENT_PATH    = os.path.join(ASSETS_DIR, "parchment_bg.jpg")
 MANDALA_TILE_PATH = os.path.join(ASSETS_DIR, "mandala_tile.png")
-
 OUT_A2 = os.path.join(HERE, "Sri_Parakala_Matham_Guru_Parampara_GRID_A2.png")
 
-# --------------------------------------------------------------------
-# Banner search (prefers images/Parakala Matham Banner.jpg)
-# --------------------------------------------------------------------
-def find_banner_path() -> Optional[str]:
-    specific = os.path.join(ASSETS_DIR, "Parakala_Matham_Banner.png")
-    if os.path.isfile(specific):
-        return specific
-
-    variants = [
-        "Parakala Matham Banner.jpg", "Parakala_Matham_Banner.jpg",
-        "Parakala Matham Banner.jpeg","Parakala_Matham_Banner.jpeg",
-        "Parakala Matham Banner.png", "Parakala_Matham_Banner.png",
-    ]
-    for name in variants:
-        p = os.path.join(IMAGES_DIR, name)
-        if os.path.isfile(p):
-            return p
-    for name in variants:
-        p = os.path.join(ASSETS_DIR, name)
-        if os.path.isfile(p):
-            return p
-    for ext in ("*.jpg","*.jpeg","*.png"):
-        for p in glob.glob(os.path.join(ASSETS_DIR, "**", ext), recursive=True):
-            n = os.path.basename(p).lower()
-            if "parakala" in n and "banner" in n:
-                return p
-    return None
-
-# --------------------------------------------------------------------
-# Font helpers (recursive search in assets/fonts/**)
-# --------------------------------------------------------------------
+# ---------- Fonts ----------
 _FONT_USED = None
 _PRINTED_FONT = False
+_FONT_CACHE: Dict[Tuple[int,str], ImageFont.FreeTypeFont] = {}
 
 def _find_fonts_recursively(base_dir):
-    if not os.path.isdir(base_dir):
-        return []
-    exts = ("*.ttf", "*.otf", "*.ttc")
+    if not os.path.isdir(base_dir): return []
     paths = []
-    for ext in exts:
+    for ext in ("*.ttf","*.otf","*.ttc"):
         paths.extend(glob.glob(os.path.join(base_dir, "**", ext), recursive=True))
     return paths
 
 def _try_load_font(size: int, candidates: List[str]) -> Optional[ImageFont.FreeTypeFont]:
     global _FONT_USED
     for path in candidates:
-        if path and os.path.isfile(path):
+        if os.path.isfile(path):
             try:
                 f = ImageFont.truetype(path, size=size)
                 _FONT_USED = path
@@ -137,703 +78,581 @@ def _try_load_font(size: int, candidates: List[str]) -> Optional[ImageFont.FreeT
     return None
 
 def load_font(size: int, weight: str = 'normal') -> ImageFont.FreeTypeFont:
+    key = (size, weight.lower())
+    if key in _FONT_CACHE:
+        return _FONT_CACHE[key]
     weight_map = {
-        'normal': [
-            "GentiumPlus-Regular.ttf", "GentiumBookPlus-Regular.ttf",
-            "NotoSerif-Regular.ttf", "DejaVuSerif.ttf"
-        ],
-        'bold': [
-            "GentiumPlus-Bold.ttf", "GentiumBookPlus-Bold.ttf",
-            "NotoSerif-Bold.ttf", "DejaVuSerif-Bold.ttf"
-        ]
+        'normal': ["GentiumPlus-Regular.ttf","GentiumBookPlus-Regular.ttf","NotoSerif-Regular.ttf","DejaVuSerif.ttf"],
+        'bold'  : ["GentiumPlus-Bold.ttf","GentiumBookPlus-Bold.ttf","NotoSerif-Bold.ttf","DejaVuSerif-Bold.ttf"],
     }
-    preferred_names = weight_map.get(weight.lower(), weight_map['normal'])
-
+    pref_names = [n.lower() for n in weight_map.get(weight.lower(), weight_map['normal'])]
     found = _find_fonts_recursively(FONTS_DIR)
-    
-    # Find preferred fonts, case-insensitively
-    preferred_names_lower = [name.lower() for name in preferred_names]
-    preferred = [p for p in found if os.path.basename(p).lower() in preferred_names_lower]
-    # Sort them to match the preferred_names order
-    preferred.sort(key=lambda p: preferred_names_lower.index(os.path.basename(p).lower()))
-
-    others    = [p for p in found if p not in preferred]
+    preferred = [p for p in found if os.path.basename(p).lower() in pref_names]
+    preferred.sort(key=lambda p: pref_names.index(os.path.basename(p).lower()) if os.path.basename(p).lower() in pref_names else 999)
+    others = [p for p in found if p not in preferred]
     f = _try_load_font(size, preferred + others)
-    if f:
-        return f
-
-    system_candidates = [
-        r"C:\Windows\Fonts\GentiumPlus-Regular.ttf",
-        r"C:\Windows\Fonts\GentiumPlus-Bold.ttf",
-        r"C:\Windows\Fonts\NotoSerif-Bold.ttf",
-        r"C:\Windows\Fonts\NotoSerif-Regular.ttf", # Fallback
-        r"C:\Windows\Fonts\Cambria.ttc",
-        r"C:\Windows\Fonts\times.ttf",
-        r"C:\Windows\Fonts\Nirmala.ttf",
-        "/Library/Fonts/GentiumPlus-Regular.ttf",
-        "/Library/Fonts/NotoSerif-Bold.ttf",
-        "/Library/Fonts/Times New Roman.ttf",
-        "/usr/share/fonts/truetype/gentiumplus/GentiumPlus-Regular.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSerif-Regular.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
-    ]
-    f = _try_load_font(size, system_candidates)
-    if f:
-        return f
-
-    return ImageFont.load_default()
+    if not f:
+        candidates = [
+            r"C:\Windows\Fonts\GentiumPlus-Regular.ttf", r"C:\Windows\Fonts\GentiumPlus-Bold.ttf",
+            r"C:\Windows\Fonts\NotoSerif-Regular.ttf",   r"C:\Windows\Fonts\NotoSerif-Bold.ttf",
+            r"C:\Windows\Fonts\Cambria.ttc", r"C:\Windows\Fonts\times.ttf", r"C:\Windows\Fonts\Nirmala.ttf",
+            "/Library/Fonts/GentiumPlus-Regular.ttf", "/Library/Fonts/GentiumPlus-Bold.ttf",
+            "/Library/Fonts/NotoSerif-Regular.ttf",   "/Library/Fonts/NotoSerif-Bold.ttf",
+            "/usr/share/fonts/truetype/gentiumplus/GentiumPlus-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSerif-Regular.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+        ]
+        f = _try_load_font(size, candidates) or ImageFont.load_default()
+    _FONT_CACHE[key] = f
+    return f
 
 def print_font_choice_once():
     global _PRINTED_FONT
     if not _PRINTED_FONT:
-        print(">>> Font used for text rendering:", _FONT_USED or "PIL default")
+        print(">>> Font:", _FONT_USED or "PIL default")
         _PRINTED_FONT = True
 
-# --------------------------------------------------------------------
-# Drawing utilities (Pillow 11 compatible)
-# --------------------------------------------------------------------
-def _text_size(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont):
-    bbox = draw.textbbox((0, 0), text, font=font)
-    return bbox[2] - bbox[0], bbox[3] - bbox[1]
+# ---------- Drawing helpers ----------
+def _text_size(d: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont):
+    bb = d.textbbox((0,0), text, font=font)
+    return bb[2]-bb[0], bb[3]-bb[1]
 
-def get_adaptive_colors(background_sample: Image.Image) -> Tuple[Tuple[int,int,int], Tuple[int,int,int]]:
-    """
-    Analyzes the background and returns a (text_color, shadow_color) pair for high contrast.
-    """
-    # Define color palettes
-    dark_text = (101, 67, 33)    # A rich, deep gold/brown for high contrast on light backgrounds
-    dark_shadow = (40, 25, 10)   # An even darker brown for a subtle, classic drop shadow
-    light_text = (255, 245, 220) # Bright, creamy off-white
-    light_shadow = (30, 20, 0)   # A dark shadow to give light text definition
+def _hex_to_rgb(h: str) -> Tuple[int,int,int]:
+    h = h.lstrip('#'); return (int(h[0:2],16), int(h[2:4],16), int(h[4:6],16))
 
-    # Calculate average luminance using the standard (perceptual) formula
-    stat = background_sample.convert("RGB").getdata()
-    if not stat: return dark_text, dark_shadow # Default for empty samples
-    avg_luma = sum(0.299*r + 0.587*g + 0.114*b for r,g,b in stat) / len(stat)
+def get_shadow_offset(off: int):
+    m = SHADOW_DIRECTION.upper()
+    return {"NW":( off,  off), "NE":(-off,  off), "SW":( off, -off), "SE":(-off, -off), "CE":(0,0)}.get(m,(0,0))
 
-    # If background is bright (luma > 128 on a 0-255 scale), use dark text. Otherwise, use light text.
-    if avg_luma > 128:
-        return dark_text, light_shadow # Dark text on light background
-    else:
-        return light_text, dark_shadow # Light text on dark background
+def get_adaptive_colors(bg: Image.Image):
+    sm = bg.resize((16,16), Image.BILINEAR).convert("RGB")
+    px = list(sm.getdata())
+    luma = sum(0.299*r + 0.587*g + 0.114*b for r,g,b in px)/len(px)
+    dark_text = (101,67,33); light_text = (255,245,220)
+    dark_shadow=(30,20,0);   light_shadow=(40,25,10)
+    return (dark_text,dark_shadow) if luma>128 else (light_text,light_shadow)
 
-def get_shadow_offset(base_offset: int) -> Tuple[int, int]:
-    """Calculates shadow (x, y) offset based on global SHADOW_DIRECTION."""
-    direction = SHADOW_DIRECTION.upper()
-    if direction == "NW": # Light from NW, shadow to SE
-        return (base_offset, base_offset)
-    elif direction == "NE": # Light from NE, shadow to SW
-        return (-base_offset, base_offset)
-    elif direction == "SW": # Light from SW, shadow to NE
-        return (base_offset, -base_offset)
-    elif direction == "SE": # Light from SE, shadow to NW
-        return (-base_offset, -base_offset)
-    else: # "CE" or unknown, no shadow
-        return (0, 0)
-
-def draw_centered_text(img: Image.Image, text: str, y: int, size: int, color,
-                       max_width: Optional[int] = None, line_gap: int = 10,
-                       shadow_strength: int = 3,
-                       font_weight: str = 'normal') -> int:
-    if not text:
-        return y
-
-    shadow_offset = get_shadow_offset(shadow_strength)
-    shadow_color = None # Will be determined later
+def draw_centered_text(img, text, y, size, color=None, max_width=None, line_gap=10, shadow_strength=3, font_weight='normal'):
+    if not text: return y
     d = ImageDraw.Draw(img)
-    font = load_font(size, weight=font_weight)
-    use_adaptive_color = color is None
+    font = load_font(size, font_weight)
+    s_off = get_shadow_offset(shadow_strength)
+    s_override = None
+    if SHADOW_COLOR_HEX:
+        s_override = (*_hex_to_rgb(SHADOW_COLOR_HEX), SHADOW_OPACITY)
 
-    def _draw(x_pos, y_pos, txt, fill):
-        d.text((x_pos, y_pos), txt, font=font, fill=fill)
+    def draw_line(line, y0):
+        lw, lh = _text_size(d, line, font)
+        x = (img.width - lw)//2
+        fg, sh = (color, (40,25,10)) if color is not None else get_adaptive_colors(img.crop((x,y0,x+lw,y0+lh)))
+        if s_override: sh = s_override
+        if shadow_strength>0:
+            d.text((x+s_off[0], y0+s_off[1]), line, font=font, fill=sh)
+        d.text((x, y0), line, font=font, fill=fg)
+        return y0 + lh
 
     if max_width is None:
-        w, h = _text_size(d, text, font)
-        x = (img.width - w) // 2
-        if use_adaptive_color:
-            bg_sample = img.crop((x, y, x + w, y + h))
-            color, adaptive_shadow_color = get_adaptive_colors(bg_sample)
-            if SHADOW_COLOR_OVERRIDE:
-                shadow_color = SHADOW_COLOR_OVERRIDE
-        elif SHADOW_COLOR_OVERRIDE:
-            shadow_color = SHADOW_COLOR_OVERRIDE
-
-        if shadow_color:
-            _draw(x + shadow_offset[0], y + shadow_offset[1], text, shadow_color)
-        _draw(x, y, text, color)
+        y = draw_line(text, y)
         print_font_choice_once()
-        return y + h
-
-    words, lines, line = text.split(), [], ""
-    for w in words:
-        test = (line + " " + w).strip()
-        tw, _ = _text_size(d, test, font)
-        if tw <= max_width or not line:
-            line = test
-        else:
-            lines.append(line)
-            line = w
-    if line:
-        lines.append(line)
-    y0 = y
-    for li in lines:
-        lw, lh = _text_size(d, li, font)
-        x = (img.width - lw)//2
-        if use_adaptive_color:
-            # Sample background for each line for maximum accuracy on gradients
-            bg_sample = img.crop((x, y0, x + lw, y0 + lh))
-            color, adaptive_shadow_color = get_adaptive_colors(bg_sample)
-            if SHADOW_COLOR_OVERRIDE:
-                shadow_color = SHADOW_COLOR_OVERRIDE
-
-        if shadow_color:
-            _draw(x + shadow_offset[0], y0 + shadow_offset[1], li, shadow_color)
-        _draw(x, y0, li, color)
-        y0 += lh + line_gap
-    print_font_choice_once()
-    return y0
-
-def tile_mandala_over(canvas: Image.Image, tile_path: str, opacity: int = 32):
-    if not os.path.isfile(tile_path):
-        return
-    tile = Image.open(tile_path).convert("RGBA")
-    alpha = tile.split()[-1].point(lambda a: int(a * (opacity / 255.0)))
-    tile.putalpha(alpha)
-    tw, th = tile.size
-    for y in range(0, canvas.height, th):
-        for x in range(0, canvas.width, tw):
-            canvas.alpha_composite(tile, (x, y))
-
-def draw_corner_overlays(canvas: Image.Image, assets_dir: str, corners: List[str]):
-    """
-    Draws a transparent overlay PNG onto the specified corners of the canvas.
-    Handles flipping and rotation for correct orientation.
-    """
-    if not corners:
-        return
-
-    overlay_path = os.path.join(assets_dir, "overlay.png")
-    if not os.path.isfile(overlay_path):
-        return
-
-    try:
-        base_overlay = Image.open(overlay_path).convert("RGBA")
-    except Exception as e:
-        print(f">>> Warning: Could not load 'overlay.png'. Error: {e}")
-        return
-
-    w, h = base_overlay.size
-    corners_set = {c.upper() for c in corners}
-
-    if "NW" in corners_set: # Top-left
-        canvas.alpha_composite(base_overlay, (0, 0))
-
-    if "NE" in corners_set: # Top-right
-        overlay_ne = base_overlay.transpose(Image.FLIP_LEFT_RIGHT)
-        canvas.alpha_composite(overlay_ne, (canvas.width - w, 0))
-
-    if "SW" in corners_set: # Bottom-left
-        overlay_sw = base_overlay.transpose(Image.FLIP_TOP_BOTTOM)
-        canvas.alpha_composite(overlay_sw, (0, canvas.height - h))
-
-    if "SE" in corners_set: # Bottom-right
-        overlay_se = base_overlay.transpose(Image.ROTATE_180)
-        canvas.alpha_composite(overlay_se, (canvas.width - w, canvas.height - h))
-
-def draw_banner(canvas: Image.Image, y: int, page_w: int, margin: int,
-                max_height_fraction: float = 0.05,  # STRICT cap (5% of page height by default)
-                feather_radius: int = 42,
-                gold_tint_alpha: int = 44,
-                desaturate: float = 1.0) -> int:
-    """
-    Draw the top banner, respecting its transparency.
-    Returns y just after the banner. The banner height is strictly capped so the grid fits.
-    """
-    banner_path = find_banner_path()
-    if not banner_path:
-        print(">>> Banner not found (looked in images/ and assets/). Skipping banner.")
         return y
 
-    banner = Image.open(banner_path).convert("RGBA")
+    words = text.split(); lines=[]; line=""
+    for w in words:
+        t=(line+" "+w).strip(); tw,_=_text_size(d,t,font)
+        if tw<=max_width or not line: line=t
+        else: lines.append(line); line=w
+    if line: lines.append(line)
+    for li in lines:
+        y = draw_line(li, y) + line_gap
+    print_font_choice_once()
+    return y
 
-    # --- STRICT scaling by BOTH width and height caps ---
+def tile_mandala_over(canvas, tile_path, opacity=32):
+    if not os.path.isfile(tile_path): return
+    tile = Image.open(tile_path).convert("RGBA")
+    a = tile.split()[-1].point(lambda v: int(v*(opacity/255.0))); tile.putalpha(a)
+    tw,th = tile.size
+    for yy in range(0, canvas.height, th):
+        for xx in range(0, canvas.width, tw):
+            canvas.alpha_composite(tile, (xx,yy))
+
+def find_banner_path() -> Optional[str]:
+    prefer = [
+        os.path.join(IMAGES_DIR, "Parakala Matham Banner.jpg"),
+        os.path.join(IMAGES_DIR, "Parakala_Matham_Banner.jpg"),
+        os.path.join(IMAGES_DIR, "Parakala Matham Banner.jpeg"),
+        os.path.join(IMAGES_DIR, "Parakala_Matham_Banner.jpeg"),
+        os.path.join(IMAGES_DIR, "Parakala Matham Banner.png"),
+        os.path.join(IMAGES_DIR, "Parakala_Matham_Banner.png"),
+    ]
+    for p in prefer:
+        if os.path.isfile(p): return p
+    for ext in ("*.jpg","*.jpeg","*.png"):
+        for p in glob.glob(os.path.join(ASSETS_DIR,"**",ext), recursive=True):
+            n=os.path.basename(p).lower()
+            if "parakala" in n and "banner" in n: return p
+    return None
+
+def draw_banner(canvas, y, page_w, margin, max_height_fraction=0.05, feather_radius=42, gold_tint_alpha=44, desaturate=0.90):
+    path = find_banner_path()
+    if not path: return y
+    b = Image.open(path).convert("RGBA")
     width_cap  = page_w - 2*margin
-    height_cap = int(canvas.height * max_height_fraction)
-    # Keep aspect ratio; respect both caps
-    scale = min(width_cap / banner.width, height_cap / banner.height, 1.0)
-    new_w = max(1, int(banner.width * scale))
-    new_h = max(1, int(banner.height * scale))
-    banner = banner.resize((new_w, new_h), Image.LANCZOS)
-    # ----------------------------------------------------
+    height_cap = int(canvas.height*max_height_fraction)
+    s = min(width_cap/b.width, height_cap/b.height, 1.0)
+    new_w, new_h = max(1, int(b.width*s)), max(1, int(b.height*s))
+    b = b.resize((new_w,new_h), Image.LANCZOS)
+    if desaturate != 1.0: b = ImageEnhance.Color(b).enhance(desaturate)
+    if gold_tint_alpha>0:
+        tint = Image.new("RGBA", b.size, (212,175,55,gold_tint_alpha))
+        b = Image.alpha_composite(b, tint)
+    mask = Image.new("L", b.size, 255)
+    m = ImageDraw.Draw(mask); edge = feather_radius
+    m.rectangle([edge,edge,b.width-edge,b.height-edge], fill=255)
+    mask = mask.filter(ImageFilter.GaussianBlur(radius=edge))
+    r,g,bb,a0 = b.split(); b = Image.merge("RGBA",(r,g,bb,mask))
+    if IMAGE_SHADOW_STRENGTH>0 and IMAGE_SHADOW_BLUR>0:
+        sh_col = (40,25,10,150) if not SHADOW_COLOR_HEX else (*_hex_to_rgb(SHADOW_COLOR_HEX), SHADOW_OPACITY)
+        sh = Image.new("RGBA", b.size, sh_col); sh.putalpha(mask)
+        sh = sh.filter(ImageFilter.GaussianBlur(radius=IMAGE_SHADOW_BLUR))
+        off = get_shadow_offset(IMAGE_SHADOW_STRENGTH)
+        sx = (canvas.width-new_w)//2 + off[0]; sy = y + off[1]
+        canvas.alpha_composite(sh,(sx,sy))
+    x = (canvas.width-new_w)//2
+    canvas.alpha_composite(b, (x,y))
+    return y + new_h + 20
 
-    # Desaturate slightly to harmonize with parchment
-    if desaturate != 1.0:
-        conv = ImageEnhance.Color(banner)
-        banner = conv.enhance(desaturate)
-
-    # --- Add Shadow ---
-    if IMAGE_SHADOW_STRENGTH > 0 and IMAGE_SHADOW_BLUR > 0:
-        # Create a shadow from the banner's alpha channel
-        shadow_alpha = banner.getchannel('A')
-        shadow_layer = Image.new("RGBA", banner.size, SHADOW_COLOR_OVERRIDE)
-        shadow_layer.putalpha(shadow_alpha)
-
-        # Blur the shadow
-        shadow_blurred = shadow_layer.filter(ImageFilter.GaussianBlur(radius=IMAGE_SHADOW_BLUR))
-
-        # Composite the shadow with an offset
-        shadow_offset = get_shadow_offset(IMAGE_SHADOW_STRENGTH)
-        shadow_x = (canvas.width - banner.width) // 2 + shadow_offset[0]
-        shadow_y = y + shadow_offset[1]
-        canvas.alpha_composite(shadow_blurred, (shadow_x, shadow_y))
-
-    # Composite centered using alpha channel
-    x = (canvas.width - banner.width)//2
-    canvas.alpha_composite(banner, (x, y))
-    return y + banner.height + 5  # Reduced spacing after banner
-
-def draw_separator_block(canvas: Image.Image, y: int,
-                         title_main: str, title_sub: str,
-                         main_size: int, sub_size: int,
-                         line_color=(212,175,55),
-                         margin=80) -> int:
+def draw_separator_block(canvas, y, title_main, title_sub, main_size, sub_size, line_color=(212,175,55), margin=80):
     d = ImageDraw.Draw(canvas)
-    y_line = y + 12
-    d.line((margin, y_line, canvas.width - margin, y_line), fill=line_color, width=3)
-    y0 = y_line + 18
-    y0 = draw_centered_text(canvas, title_main, y0, main_size, color=None,
-                           shadow_strength=4, font_weight=SECTION_FONT_WEIGHT,
-                           max_width=int(canvas.width*0.92), line_gap=8)
-    y0 = draw_centered_text(canvas, title_sub, y0, sub_size, color=None,
-                           shadow_strength=3, font_weight=SECTION_FONT_WEIGHT,
-                           max_width=int(canvas.width*0.92), line_gap=8)
+    y_line=y+12; d.line((margin,y_line, canvas.width-margin, y_line), fill=line_color, width=3)
+    y0 = y_line+18
+    y0 = draw_centered_text(canvas, title_main, y0, main_size, color=None, shadow_strength=4, font_weight=SECTION_FONT_WEIGHT, max_width=int(canvas.width*0.92), line_gap=8)
+    y0 = draw_centered_text(canvas, title_sub,  y0, sub_size,  color=None, shadow_strength=3, font_weight=SECTION_FONT_WEIGHT, max_width=int(canvas.width*0.92), line_gap=8)
     return y0 + 10
 
-# --------------------------------------------------------------------
-# Data utilities
-# --------------------------------------------------------------------
-def get_ordered_images(images_dir: str, pattern: str, group: int) -> List[str]:
-    regex = re.compile(pattern, re.I)
-    items = []
-    for fn in os.listdir(images_dir):
-        if not fn.lower().endswith(".png"):
-            continue
-        m = regex.match(fn)
-        if not m:
-            continue
+# ---------- Data ----------
+def read_xlsx():
+    if not os.path.isfile(XLSX_PATH):
+        raise FileNotFoundError(f"Data file not found: {XLSX_PATH}")
+    df_f = pd.read_excel(XLSX_PATH, sheet_name="Founders_Early_Acharyas", engine="openpyxl", header=None)
+    df_p = pd.read_excel(XLSX_PATH, sheet_name="acharyan_captions",   engine="openpyxl", header=None)
+
+    # Founders: optional header skip
+    try: first_val_f = str(df_f.iloc[0,1]).lower()
+    except: first_val_f = ""
+    if any(k in first_val_f for k in ("acharya","name","caption","ācārya","āchārya")):
+        df_f = df_f.iloc[1:].reset_index(drop=True)
+
+    founders = []
+    for i,row in df_f.iterrows():
+        if len(row)<2: continue
         try:
-            key = int(m.group(group))
+            fid  = int(row.iloc[0])             # col1: ID (0..17)
+            cap  = str(row.iloc[1]).strip()     # col2: caption
+            grp  = row.iloc[2] if len(row)>2 else None  # col3: group id
+            grp  = int(grp) if pd.notna(grp) else f"unique_{i}"
+            is_m = False
+            if len(row)>3:
+                is_m = str(row.iloc[3]).strip().upper()=='M'
+            founders.append({"id": fid, "caption": cap, "group_id": grp, "is_main": is_m})
         except Exception:
             continue
-        items.append((key, os.path.join(images_dir, fn)))
-    items.sort(key=lambda t: t[0])
-    return [p for _, p in items]
 
-def read_captions_from_xlsx(xlsx_path: str):
-    if not os.path.isfile(xlsx_path):
-        raise FileNotFoundError(f"XLSX not found: {xlsx_path}")
-    df_f = pd.read_excel(xlsx_path, sheet_name="Founders_Early_Acharyas", engine="openpyxl")
-    df_p = pd.read_excel(xlsx_path, sheet_name="acharyan_captions", engine="openpyxl")
-    df_f.columns = [str(c).strip() for c in df_f.columns]
-    df_p.columns = [str(c).strip() for c in df_p.columns]
-    col_f = next(c for c in df_f.columns if "Founders" in c)
-    col_p = next(c for c in df_p.columns if "Sri Parakāla" in c)
-    cap_founders = df_f[col_f].dropna().astype(str).str.strip().tolist()
-    cap_parakala = df_p[col_p].dropna().astype(str).str.strip().tolist()
-    return cap_founders, cap_parakala
+    # Parakāla: optional header skip
+    try: first_val_p = str(df_p.iloc[0,0]).lower()
+    except: first_val_p = ""
+    if any(k in first_val_p for k in ("sl no","id","no","s.no")):
+        df_p = df_p.iloc[1:].reset_index(drop=True)
 
-# --------------------------------------------------------------------
-# Layout renderer (A2 only, 6 columns) with auto-fit retry
-# --------------------------------------------------------------------
-def render_once_A2(page_w: int, page_h: int, margin: int, num_cols: int,
-                   gutter_x: int, row_gap: int, title_font: int, subtitle_font: int,
-                   caption_font: int, footer_font: int, img_scale: float,
-                   section_gap_extra: int, section2_title_size: int, section2_sub_size: int, 
-                   banner_max_height_fraction: float,
-                   parchment_brightness: float = 1.0, parchment_mode: str = 'tile',
-                   featured_acharya_mode: bool = True) -> Tuple[Image.Image, int]:
-    # Load captions + images (order only)
-    cap_founders, cap_parakala = read_captions_from_xlsx(XLSX_PATH)
-    img_founders = get_ordered_images(IMAGES_DIR, r"^F(\d{2}).*\.png$", 1)   # F01..F17 
-    img_parakala = get_ordered_images(IMAGES_DIR, r"^(\d{4}).*\.png$", 1)    # 0100..3600
+    parakala = []
+    for _,row in df_p.iterrows():
+        if len(row)<2: continue
+        try:
+            pid = int(row.iloc[0])              # 1..36 (Excel)
+            cap = str(row.iloc[1]).strip()
+            if cap:
+                parakala.append({"id": pid, "caption": cap})
+        except Exception:
+            continue
+    return founders, parakala
 
-    founders_pairs: List[Tuple[str, str]] = []
-    for i in range(max(len(cap_founders), len(img_founders))):
-        caption = cap_founders[i] if i < len(cap_founders) else ""
-        path    = img_founders[i] if i < len(img_founders) else ""
-        founders_pairs.append((path, caption))
+# ---------- Image indexing ----------
+def index_images(images_dir: str):
+    """
+    founders_map: 'f00'..'f17' -> path
+    parakala_map: '0100'..'3600' -> path  (match code anywhere in filename)
+    """
+    founders_map: Dict[str,str] = {}
+    parakala_map: Dict[str,str] = {}
 
-    parakala_pairs: List[Tuple[str, str]] = []
-    for i in range(max(len(cap_parakala), len(img_parakala))):
-        caption = cap_parakala[i] if i < len(cap_parakala) else ""
-        path    = img_parakala[i] if i < len(img_parakala) else ""
-        parakala_pairs.append((path, caption))
+    re_f_any = re.compile(r'[fF](\d{2})') if RELAXED_MATCH_ANYWHERE else re.compile(r'^[fF](\d{2})')
+    re_p_any = re.compile(r'(\d{4})')     if RELAXED_MATCH_ANYWHERE else re.compile(r'^(\d{4})')
+
+    files = os.listdir(images_dir)
+    if not files:
+        print(f">>> WARNING: images folder is empty: {images_dir}")
+
+    for fn in files:
+        fn_low = fn.lower()
+        if not fn_low.endswith(IMG_EXTS):
+            continue
+        full = os.path.join(images_dir, fn)
+
+        m_f = re_f_any.search(fn)
+        if m_f:
+            founders_map[f"f{m_f.group(1)}".lower()] = full
+            continue
+
+        m_p = re_p_any.search(fn)
+        if m_p and len(m_p.group(1)) == 4:
+            parakala_map[m_p.group(1)] = full
+            continue
+
+    # Diagnostics
+    print(f">>> Indexed founders images: {len(founders_map)}")
+    print(f">>> Indexed Parakāla images: {len(parakala_map)}")
+    return founders_map, parakala_map
+
+# ---------- Render core ----------
+def render_once_A2(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:int, row_gap:int,
+                   title_font:int, subtitle_font:int, caption_font:int, footer_font:int,
+                   img_scale:float, section_gap_extra:int, section2_title_size:int, section2_sub_size:int,
+                   banner_max_height_fraction:float, parchment_brightness:float=1.0,
+                   parchment_mode:str='stretch', featured_acharya_mode:bool=True) -> Tuple[Image.Image, int]:
+
+    founders_data, parakala_data = read_xlsx()
+    f_map, p_map = index_images(IMAGES_DIR)
+
+    # Map founders
+    featured = None
+    grouped: Dict[str, List[dict]] = {}
+    for it in founders_data:
+        fid = it['id']
+        key = f"f{fid:02d}"
+        path = f_map.get(key, "")
+        if not path:
+            print(f">>> Missing founder image for {key} – placeholder will be used.")
+        it2 = {**it, "path": path}
+        if fid == 0 and featured_acharya_mode:
+            featured = it2
+        else:
+            gid = str(it['group_id'])
+            grouped.setdefault(gid, []).append(it2)
+
+    # Map Parakāla — IMPORTANT: Excel 1..36 -> filenames 0100..3600
+    parakala_pairs: List[Tuple[str,str]] = []
+    missing = []
+    for it in parakala_data:
+        code = f"{it['id']:02d}00"  # 1 -> "0100", 12 -> "1200"
+        path = p_map.get(code, "")
+        if not path:
+            missing.append(code)
+        parakala_pairs.append((path, it['caption']))
+    if missing:
+        print(f">>> WARNING: {len(missing)} Parakāla codes not found (expect 0100..3600). First few: {missing[:10]}")
 
     # Background
     if os.path.isfile(PARCHMENT_PATH):
-        if parchment_mode == 'stretch':
-            parchment = Image.open(PARCHMENT_PATH).convert("RGB").resize((page_w, page_h), Image.LANCZOS)
-        else: # 'tile' is the default
-            parchment = Image.new("RGB", (page_w, page_h))
-            tile_img = Image.open(PARCHMENT_PATH).convert("RGB")
-            tw, th = tile_img.size
-            for y in range(0, page_h, th):
-                for x in range(0, page_w, tw):
-                    parchment.paste(tile_img, (x, y))
-        if parchment_brightness != 1.0:
-            enhancer = ImageEnhance.Brightness(parchment)
-            parchment = enhancer.enhance(parchment_brightness)
+        if parchment_mode=='stretch':
+            parchment = Image.open(PARCHMENT_PATH).convert("RGB").resize((page_w,page_h), Image.LANCZOS)
+        else:
+            src = Image.open(PARCHMENT_PATH).convert("RGB")
+            parchment = Image.new("RGB", (page_w,page_h))
+            tw,th = src.size
+            for yy in range(0,page_h,th):
+                for xx in range(0,page_w,tw):
+                    parchment.paste(src,(xx,yy))
+        if PARCHMENT_BRIGHTNESS!=1.0:
+            parchment = ImageEnhance.Brightness(parchment).enhance(PARCHMENT_BRIGHTNESS)
     else:
-        parchment = Image.new("RGB", (page_w, page_h), (250, 240, 220))
+        parchment = Image.new("RGB",(page_w,page_h),(250,240,220))
     canvas = parchment.convert("RGBA")
     tile_mandala_over(canvas, MANDALA_TILE_PATH, opacity=32)
-    draw_corner_overlays(canvas, ASSETS_DIR, OVERLAY_CORNERS)
     d = ImageDraw.Draw(canvas)
 
-    # Banner → Title → Subtitle
+    # Banner / Title / Subtitle
     y = margin
-    y = draw_banner(canvas, y, page_w, margin,
-                    max_height_fraction=banner_max_height_fraction,
+    y = draw_banner(canvas, y, page_w, margin, max_height_fraction=banner_max_height_fraction,
                     feather_radius=44, gold_tint_alpha=48, desaturate=0.88)
-    y = draw_centered_text(canvas, TITLE_TEXT, y, title_font, color=None,
-                           shadow_strength=5, font_weight=TITLE_FONT_WEIGHT,
-                           max_width=int(page_w*0.92), line_gap=12)
-    y = draw_centered_text(canvas, SUBTITLE_TEXT, y + 8, subtitle_font, color=None,
-                           shadow_strength=3, font_weight=SUBTITLE_FONT_WEIGHT,
-                           max_width=int(page_w*0.92), line_gap=10)
-    y += 24
+    y = draw_centered_text(canvas, TITLE_TEXT, y, title_font, color=None, shadow_strength=5,
+                           font_weight=TITLE_FONT_WEIGHT, max_width=int(page_w*0.92), line_gap=12)
+    y = draw_centered_text(canvas, SUBTITLE_TEXT, y+8, subtitle_font, color=None, shadow_strength=3,
+                           font_weight=SUBTITLE_FONT_WEIGHT, max_width=int(page_w*0.92), line_gap=10)
+    y += 22
 
-    # --- Featured Acharya Mode ---
-    if featured_acharya_mode and founders_pairs:
-        featured_acharya = founders_pairs.pop(0)
-        img_path, caption = featured_acharya
-
-        # Draw the featured acharya, scaled to be prominent
-        # The size of the featured image MUST also scale down during auto-fit attempts.
-        featured_img_w = int(page_w * 0.25 * (img_scale / 0.68))
-        featured_img_h = int(featured_img_w * 1.2)
-
+    # Featured F00
+    if featured:
+        img_w_max = int(page_w*0.22)
+        img_h_tgt = int(img_w_max*img_scale*1.2)
+        path = featured["path"]
         try:
-            im = Image.open(img_path).convert("RGB")
+            im = Image.open(path).convert("RGB")
         except Exception:
-            im = Image.new("RGB", (featured_img_w, featured_img_h), (230,230,230))
-
-        iw, ih = im.size
-        scale = min(featured_img_w/iw, featured_img_h/ih)
-        w, h = max(1, int(iw*scale)), max(1, int(ih*scale))
+            im = Image.new("RGB",(img_w_max,img_h_tgt),(230,230,230))
+        iw,ih = im.size
+        s = min(img_w_max/iw, img_h_tgt/ih)
+        w,h = max(1,int(iw*s)), max(1,int(ih*s))
         im = im.resize((w,h), Image.LANCZOS)
-
-        # Gold oval mask
-        mask = Image.new("L", (w, h), 0)
-        ImageDraw.Draw(mask).ellipse([0,0,w-1,h-1], fill=255)
-        im_oval = Image.new("RGBA", (w, h))
-        im_oval.paste(im, (0,0), mask=mask)
-
-        stroke = Image.new("RGBA", (w+4, h+4), (0,0,0,0))
+        mask = Image.new("L",(w,h),0); ImageDraw.Draw(mask).ellipse([0,0,w-1,h-1], fill=255)
+        im_oval = Image.new("RGBA",(w,h)); im_oval.paste(im,(0,0),mask=mask)
+        stroke = Image.new("RGBA",(w+4,h+4),(0,0,0,0))
         ImageDraw.Draw(stroke).ellipse([0,0,w+3,h+3], outline=(212,175,55,255), width=3)
+        if IMAGE_SHADOW_STRENGTH>0 and IMAGE_SHADOW_BLUR>0:
+            sh_col = (40,25,10,150) if not SHADOW_COLOR_HEX else (*_hex_to_rgb(SHADOW_COLOR_HEX), SHADOW_OPACITY)
+            sh = Image.new("RGBA",(w,h),sh_col); sh.putalpha(mask)
+            sh = sh.filter(ImageFilter.GaussianBlur(radius=IMAGE_SHADOW_BLUR))
+            off = get_shadow_offset(IMAGE_SHADOW_STRENGTH)
+            canvas.alpha_composite(sh, ((page_w-w)//2+off[0], y+off[1]))
+        x = (page_w-w)//2; img_y = y
+        canvas.alpha_composite(stroke,(x-2,img_y-2))
+        canvas.alpha_composite(im_oval,(x,img_y))
+        y2 = img_y + h + 12
+        cap_font = load_font(42, weight=FOOTER_FONT_WEIGHT)
+        lw,lh = _text_size(d, featured["caption"], cap_font)
+        bg = canvas.crop(((page_w-lw)//2, y2, (page_w+lw)//2, y2+lh))
+        fg,sh = get_adaptive_colors(bg)
+        d.text(((page_w-lw)//2+2, y2+2), featured["caption"], font=cap_font, fill=sh)
+        d.text(((page_w-lw)//2,   y2),   featured["caption"], font=cap_font, fill=fg)
+        y = y2 + lh + 28
 
-        # --- Add Shadow ---
-        if IMAGE_SHADOW_STRENGTH > 0 and IMAGE_SHADOW_BLUR > 0:
-            # Create a shadow from the oval mask
-            shadow_layer = Image.new("RGBA", im_oval.size, SHADOW_COLOR_OVERRIDE)
-            shadow_layer.putalpha(mask)
-            shadow_blurred = shadow_layer.filter(ImageFilter.GaussianBlur(radius=IMAGE_SHADOW_BLUR))
+    # ---------- Founders in EXACTLY 2 rows; contemporaries stacked ----------
+    # Preserve group encounter order
+    grouped: Dict[str, List[dict]] = {}
+    for it in founders_data:
+        if it['id'] == 0 and FEATURED_ACHARYA_MODE:  # already drawn
+            continue
+        gid = str(it['group_id'])
+        grouped.setdefault(gid, []).append(it)
 
-            # Composite the shadow with an offset
-            shadow_offset = get_shadow_offset(IMAGE_SHADOW_STRENGTH)
-            shadow_x = (page_w - w) // 2 + shadow_offset[0]
-            shadow_y = y + 20 + shadow_offset[1]
-            canvas.alpha_composite(shadow_blurred, (shadow_x, shadow_y))
-        # --- End Shadow ---
+    ordered_groups: List[List[dict]] = []
+    seen=set()
+    for it in sum(grouped.values(), []):
+        gid = str(it['group_id'])
+        if gid in seen: continue
+        ordered_groups.append(grouped[gid]); seen.add(gid)
 
-        img_x = (page_w - w) // 2
-        img_y = y + 20
-        canvas.alpha_composite(stroke, (img_x-2, img_y-2))
-        canvas.alpha_composite(im_oval, (img_x, img_y))
+    total_groups = len(ordered_groups)
+    rows_groups = [[],[]]
+    if total_groups>0:
+        row1_count = math.ceil(total_groups/2)
+        rows_groups = [ordered_groups[:row1_count], ordered_groups[row1_count:]]
 
-        y = img_y + h + 15
+    def draw_group_row(row_groups: List[List[dict]], start_y: int) -> int:
+        if not row_groups: return 0
+        cols = len(row_groups)
+        total_gutter = (cols-1)*gutter_x
+        cell_w = (page_w - 2*margin - total_gutter)//max(1,cols)
 
-        # Draw caption for featured acharya
-        cap_font = load_font(caption_font + 4) # Slightly larger caption font
-        cap_w, cap_h = _text_size(d, caption, cap_font)
-        bg_sample = canvas.crop(((page_w - cap_w)//2, y, (page_w + cap_w)//2, y + cap_h))
-        cap_color, cap_shadow_color = get_adaptive_colors(bg_sample)
-
-        tx = (page_w - cap_w) // 2
-        d.text((tx + 2, y + 2), caption, font=cap_font, fill=cap_shadow_color)
-        d.text((tx, y), caption, font=cap_font, fill=cap_color)
-
-        y += cap_h + 40
-    # --- End Featured Acharya Mode ---
-
-    # Grid geometry
-    total_gutter_width = (num_cols - 1) * gutter_x
-    cell_w = (page_w - 2*margin - total_gutter_width) // num_cols
-    x0 = margin
-
-    def _text_size_local(d, text, font):
-        bb = d.textbbox((0,0), text, font=font)
-        return bb[2]-bb[0], bb[3]-bb[1]
-
-    def draw_cell(x: int, y: int, img_path: str, caption: str) -> int:
-        img_h_target = int(cell_w * img_scale)
-        img_w_max    = cell_w
-        try:
-            im = Image.open(img_path).convert("RGB")
-        except Exception:
-            im = Image.new("RGB", (img_w_max, img_h_target), (230,230,230))
-            dd = ImageDraw.Draw(im)
-            dd.rectangle([0,0,im.width-1,im.height-1], outline=(120,120,120), width=2)
-            dd.text((10,10), "Missing image", fill=(80,80,80))
-        iw, ih = im.size
-        scale = min(img_w_max/iw, img_h_target/ih)
-        w, h = max(1, int(iw*scale)), max(1, int(ih*scale))
-        im = im.resize((w,h), Image.LANCZOS)
-
-        # gold oval mask
-        mask = Image.new("L", (w, h), 0)
-        ImageDraw.Draw(mask).ellipse([0,0,w-1,h-1], fill=255)
-        im_oval = Image.new("RGBA", (w, h))
-        im_oval.paste(im, (0,0), mask=mask)
-
-        stroke = Image.new("RGBA", (w+4, h+4), (0,0,0,0))
-        sd = ImageDraw.Draw(stroke)
-        sd.ellipse([0,0,w+3,h+3], outline=(212,175,55,255), width=2)
-
-        # --- Add Shadow ---
-        if IMAGE_SHADOW_STRENGTH > 0 and IMAGE_SHADOW_BLUR > 0:
-            # Create a shadow from the oval mask
-            shadow_layer = Image.new("RGBA", im_oval.size, SHADOW_COLOR_OVERRIDE)
-            shadow_layer.putalpha(mask)
-            shadow_blurred = shadow_layer.filter(ImageFilter.GaussianBlur(radius=IMAGE_SHADOW_BLUR))
-
-            # Composite the shadow with an offset
-            shadow_offset = get_shadow_offset(IMAGE_SHADOW_STRENGTH)
-            shadow_x = x + (cell_w - w) // 2 + shadow_offset[0]
-            shadow_y = y + shadow_offset[1]
-            canvas.alpha_composite(shadow_blurred, (shadow_x, shadow_y))
-        # --- End Shadow ---
-
-        img_x = x + (cell_w - w)//2
-        img_y = y
-        canvas.alpha_composite(stroke, (img_x-2, img_y-2))
-        canvas.alpha_composite(im_oval, (img_x, img_y))
-
-        # caption wrap
-        cap_font = load_font(caption_font)
-        d = ImageDraw.Draw(canvas)
-        text = (caption or "").strip()
-        words, lines, line = text.split(), [], ""
-        max_text_w = cell_w - 6
-        for tk in words:
-            test = (line + " " + tk).strip()
-            tw, _ = _text_size_local(d, test, cap_font)
-            if tw <= max_text_w or not line:
-                line = test
+        def draw_cell(x:int, y0:int, img_path:str, caption:str, magnification:float=1.0, measure_only:bool=False) -> int:
+            img_w_max = int(cell_w * magnification)
+            img_h_tgt = int(img_w_max * img_scale)
+            try:
+                im = Image.open(img_path).convert("RGB")
+            except Exception:
+                im = Image.new("RGB",(img_w_max,img_h_tgt),(230,230,230))
+                dd = ImageDraw.Draw(im); dd.rectangle([0,0,im.width-1,im.height-1], outline=(120,120,120), width=2)
+                dd.text((10,10),"Missing image", fill=(80,80,80))
+            iw,ih = im.size; s = min(img_w_max/iw, img_h_tgt/ih)
+            w,h = max(1,int(iw*s)), max(1,int(ih*s))
+            im = im.resize((w,h), Image.LANCZOS)
+            mask = Image.new("L",(w,h),0); ImageDraw.Draw(mask).ellipse([0,0,w-1,h-1], fill=255)
+            if not measure_only:
+                im_oval = Image.new("RGBA",(w,h)); im_oval.paste(im,(0,0),mask=mask)
+                stroke = Image.new("RGBA",(w+4,h+4),(0,0,0,0))
+                ImageDraw.Draw(stroke).ellipse([0,0,w+3,h+3], outline=(212,175,55,255), width=2)
+                if IMAGE_SHADOW_STRENGTH>0 and IMAGE_SHADOW_BLUR>0:
+                    sh_col = (40,25,10,150) if not SHADOW_COLOR_HEX else (*_hex_to_rgb(SHADOW_COLOR_HEX), SHADOW_OPACITY)
+                    sh = Image.new("RGBA",(w,h),sh_col); sh.putalpha(mask)
+                    sh = sh.filter(ImageFilter.GaussianBlur(radius=IMAGE_SHADOW_BLUR))
+                    off = get_shadow_offset(IMAGE_SHADOW_STRENGTH)
+                    canvas.alpha_composite(sh, (x+(cell_w-w)//2+off[0], y0+off[1]))
+                ix = x + (cell_w - w)//2
+                canvas.alpha_composite(stroke,(ix-2,y0-2))
+                canvas.alpha_composite(im_oval,(ix,y0))
+            cap_font = load_font(caption_font)
+            words = caption.split(); lines=[]; line=""
+            max_text_w = cell_w - 6
+            for tk in words:
+                test=(line+" "+tk).strip(); tw,_=_text_size(d,test,cap_font)
+                if tw<=max_text_w or not line: line=test
+                else: lines.append(line); line=tk
+            if line: lines.append(line)
+            ty = y0 + h + 6
+            if measure_only:
+                total_h = sum(_text_size(d, li, cap_font)[1] for li in lines) + (len(lines)-1)*3
+                return (ty - y0) + total_h
+            if lines:
+                max_lw = max(_text_size(d, li, cap_font)[0] for li in lines)
+                total_h = sum(_text_size(d, li, cap_font)[1] for li in lines) + (len(lines)-1)*3
+                bg = canvas.crop((x+(cell_w-max_lw)//2, ty, x+(cell_w-max_lw)//2+max_lw, ty+total_h))
+                fg,sh = get_adaptive_colors(bg)
             else:
-                lines.append(line); line = tk
-        if line:
-            lines.append(line)
-        ty = img_y + h + 6
+                fg,sh = (70,50,0),(30,20,0)
+            for li in lines:
+                lw,lh=_text_size(d, li, cap_font); tx=x+(cell_w-lw)//2
+                d.text((tx+2, ty+2), li, font=cap_font, fill=sh)
+                d.text((tx,   ty  ), li, font=cap_font, fill=fg)
+                ty += lh + 3
+            print_font_choice_once()
+            return ty - y0
 
-        # Adaptive color for captions
-        total_text_h = sum(_text_size_local(d, li, cap_font)[1] for li in lines) + (len(lines) - 1) * 3
-        if lines:
-            max_lw = max(_text_size_local(d, li, cap_font)[0] for li in lines)
-            bg_sample_x = x + (cell_w - max_lw) // 2
-            bg_sample = canvas.crop((bg_sample_x, ty, bg_sample_x + max_lw, ty + total_text_h))
-            cap_color, cap_shadow_color = get_adaptive_colors(bg_sample)
-        else: # Default if no caption
-            cap_color, cap_shadow_color = (70, 50, 0), (30, 20, 0)
+        # measure col heights
+        col_heights=[]
+        for grp in row_groups:
+            acc=0
+            for item in grp:
+                magn = MAGNIFY_FACTOR if item.get("is_main") else 1.0
+                # find image path for this item from founders map:
+                path = f_map.get(f"f{item['id']:02d}", "")
+                acc += draw_cell(0,0,path, item["caption"], magnification=magn, measure_only=True) + (row_gap//2)
+            if acc>0: acc -= (row_gap//2)
+            col_heights.append(acc)
+        row_h = max(col_heights) if col_heights else 0
 
-        for li in lines:
-            lw, lh = _text_size_local(d, li, cap_font)
-            tx = x + (cell_w - lw)//2
-            d.text((tx + 2, ty + 2), li, font=cap_font, fill=cap_shadow_color) # Subtle shadow
-            d.text((tx, ty), li, font=cap_font, fill=cap_color)
-            ty += lh + 3
-        print_font_choice_once()
-        return (ty - y)
-
-    def draw_row(items: List[Tuple[str,str]], start_y: int) -> int:
-        row_h = 0
-        # Calculate horizontal offset for centering partial rows
-        row_offset_x = 0
-        if 0 < len(items) < num_cols:
-            # Total width of the space occupied by the missing cells and their gutters
-            unused_width = (num_cols - len(items)) * (cell_w + gutter_x)
-            row_offset_x = unused_width // 2
-
-        for col_idx, (p, cap) in enumerate(items):
-            x = x0 + row_offset_x + col_idx * (cell_w + gutter_x)
-            h_used = draw_cell(x, start_y, p, cap)
-            if h_used > row_h:
-                row_h = h_used
+        # draw
+        draw_x = margin
+        for col_idx, grp in enumerate(row_groups):
+            y_cursor = start_y + (row_h - col_heights[col_idx])//2
+            for item in grp:
+                path = f_map.get(f"f{item['id']:02d}", "")
+                magn = MAGNIFY_FACTOR if item.get("is_main") else 1.0
+                used = draw_cell(draw_x, y_cursor, path, item["caption"], magnification=magn, measure_only=False)
+                y_cursor += used + (row_gap//2)
+            draw_x += cell_w + gutter_x
         return row_h
 
-    # Section 1: Founders (17)
-    idx = 0
-    while idx < len(founders_pairs):
-        slice_items = founders_pairs[idx: idx + num_cols]
-        row_h = draw_row(slice_items, y)
-        y += row_h + row_gap
-        idx += num_cols
+    for row_groups in rows_groups:
+        if not row_groups: continue
+        used_h = draw_group_row(row_groups, y)
+        y += used_h + row_gap
 
-    # Bigger visual separation before section 2
+    # ---------- Parakāla grid ----------
     y += section_gap_extra
-    y = draw_separator_block(canvas, y, SECTION2_TITLE, SECTION2_SUB,
-                             main_size=section2_title_size, sub_size=section2_sub_size)
+    y = draw_separator_block(canvas, y, SECTION2_TITLE, SECTION2_SUB, main_size=section2_title_size, sub_size=section2_sub_size)
     y += section_gap_extra
 
-    # Section 2: Parakala Jeeyars (36)
-    idx = 0
+    total_gutter = (num_cols-1)*gutter_x
+    cell_w = (page_w - 2*margin - total_gutter)//num_cols
+    x0 = margin
+
+    def draw_cell_grid(x:int, y0:int, img_path:str, caption:str) -> int:
+        img_w_max = cell_w
+        img_h_tgt = int(img_w_max*img_scale)
+        try:
+            im = Image.open(img_path).convert("RGB")
+        except Exception:
+            im = Image.new("RGB",(img_w_max,img_h_tgt),(230,230,230))
+            dd=ImageDraw.Draw(im); dd.rectangle([0,0,im.width-1,im.height-1], outline=(120,120,120), width=2)
+            dd.text((10,10),"Missing image", fill=(80,80,80))
+        iw,ih = im.size; s = min(img_w_max/iw, img_h_tgt/ih)
+        w,h = max(1,int(iw*s)), max(1,int(ih*s))
+        im = im.resize((w,h), Image.LANCZOS)
+        mask = Image.new("L",(w,h),0); ImageDraw.Draw(mask).ellipse([0,0,w-1,h-1], fill=255)
+        im_oval = Image.new("RGBA",(w,h)); im_oval.paste(im,(0,0),mask=mask)
+        stroke = Image.new("RGBA",(w+4,h+4),(0,0,0,0)); ImageDraw.Draw(stroke).ellipse([0,0,w+3,h+3], outline=(212,175,55,255), width=2)
+        if IMAGE_SHADOW_STRENGTH>0 and IMAGE_SHADOW_BLUR>0:
+            sh_col = (40,25,10,150) if not SHADOW_COLOR_HEX else (*_hex_to_rgb(SHADOW_COLOR_HEX), SHADOW_OPACITY)
+            sh = Image.new("RGBA",(w,h),sh_col); sh.putalpha(mask)
+            sh = sh.filter(ImageFilter.GaussianBlur(radius=IMAGE_SHADOW_BLUR))
+            off = get_shadow_offset(IMAGE_SHADOW_STRENGTH)
+            canvas.alpha_composite(sh, (x+(cell_w-w)//2+off[0], y0+off[1]))
+        ix = x + (cell_w-w)//2
+        canvas.alpha_composite(stroke,(ix-2,y0-2))
+        canvas.alpha_composite(im_oval,(ix,y0))
+
+        cap_font = load_font(caption_font)
+        words = caption.split(); lines=[]; line=""
+        max_text_w = cell_w - 6
+        for tk in words:
+            test=(line+" "+tk).strip(); tw,_=_text_size(d,test,cap_font)
+            if tw<=max_text_w or not line: line=test
+            else: lines.append(line); line=tk
+        if line: lines.append(line)
+        ty = y0 + h + 6
+        if lines:
+            max_lw = max(_text_size(d, li, cap_font)[0] for li in lines)
+            total_h = sum(_text_size(d, li, cap_font)[1] for li in lines) + (len(lines)-1)*3
+            bg = canvas.crop((x+(cell_w-max_lw)//2, ty, x+(cell_w-max_lw)//2+max_lw, ty+total_h))
+            fg,sh = get_adaptive_colors(bg)
+        else:
+            fg,sh=(70,50,0),(30,20,0)
+        for li in lines:
+            lw,lh=_text_size(d, li, cap_font); tx=x+(cell_w-lw)//2
+            d.text((tx+2,ty+2), li, font=cap_font, fill=sh)
+            d.text((tx,  ty  ), li, font=cap_font, fill=fg)
+            ty += lh + 3
+        print_font_choice_once()
+        return ty - y0
+
+    idx=0
     while idx < len(parakala_pairs):
-        slice_items = parakala_pairs[idx: idx + num_cols]
-        row_h = draw_row(slice_items, y)
+        row_items = parakala_pairs[idx: idx+num_cols]
+        row_h = 0
+        for col, (p,cap) in enumerate(row_items):
+            x = x0 + col*(cell_w+gutter_x)
+            used = draw_cell_grid(x, y, p, cap)
+            if used>row_h: row_h = used
         y += row_h + row_gap
         idx += num_cols
 
-    # Footer (no border)
-    footer_y = y + 24 # Use the actual y-position to check for overflow
-    draw_centered_text(canvas, FOOTER_TEXT, footer_y, footer_font, color=None,
-                       shadow_strength=4, font_weight=FOOTER_FONT_WEIGHT,
-                       max_width=int(page_w*0.92))
-
-    # --- Add Signature ---
-    if SHOW_SIGNATURE:
-        signature_path = os.path.join(ASSETS_DIR, "signature.png")
-        if os.path.isfile(signature_path):
-            try:
-                sig = Image.open(signature_path).convert("RGBA")
-                # Resize to a small, fixed height while maintaining aspect ratio
-                sig_h = 60
-                sig_w = int(sig.width * (sig_h / sig.height))
-                sig = sig.resize((sig_w, sig_h), Image.LANCZOS)
-
-                # Position in the bottom-right corner, just inside the margin
-                sig_x = page_w - sig_w - margin
-                sig_y = page_h - sig_h - margin
-
-                canvas.alpha_composite(sig, (sig_x, sig_y))
-            except Exception as e:
-                print(f">>> Warning: Could not load or place signature.png. Error: {e}")
-    # --- End Signature ---
-
+    footer_y = y + 24
+    draw_centered_text(canvas, FOOTER_TEXT, footer_y, footer_font, color=None, shadow_strength=4,
+                       font_weight=FOOTER_FONT_WEIGHT, max_width=int(page_w*0.92))
     return canvas.convert("RGB"), footer_y
 
-def render_with_auto_fit(
-        page_w: int = 4961, page_h: int = 7016,    # A2 ~300dpi
-        margin: int = 90,
-        num_cols: int = 6,
-        gutter_x: int = 30,
-        row_gap: int = 34,
-        title_font: int = 170,
-        subtitle_font: int = 60,
-        caption_font: int = 40,
-        footer_font: int = 46,
-        img_scale: float = 0.68,
-        section_gap_extra: int = 80,
-        section2_title_size: int = 110,
-        section2_sub_size: int = 58,
-        banner_max_height_fraction: float = 0.05,   # 5% strict cap by default,
-        parchment_brightness: float = 1.0,
-        parchment_mode: str = 'tile',
-        featured_acharya_mode: bool = True
-    ) -> Optional[Image.Image]:
-    """
-    Renders once; if the layout overflows the page, auto-retries with slightly smaller images.
-    Returns the final rendered image.
-    """
-    # --- 1. Determine required bottom margin ---
-    # Start with a base padding, then add space for overlays if needed.
-    required_bottom_space = 40  # Base padding from page edge
-    if any(c.upper() in ["SW", "SE"] for c in OVERLAY_CORNERS):
-        overlay_path = os.path.join(ASSETS_DIR, "overlay.png")
-        if os.path.isfile(overlay_path):
-            try:
-                h = Image.open(overlay_path).height
-                required_bottom_space = max(required_bottom_space, h + 20)
-                print(f">>> Reserving {h+20}px at bottom for corner overlays.")
-            except Exception:
-                pass
+# ---------- Auto-fit wrapper ----------
+def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter_x=30, row_gap=34,
+                         title_font=180, subtitle_font=66, caption_font=42, footer_font=48,
+                         img_scale=0.68, section_gap_extra=90, section2_title_size=120, section2_sub_size=62,
+                         banner_max_height_fraction=0.05, parchment_brightness=1.0, parchment_mode='stretch',
+                         featured_acharya_mode=True) -> Optional[Image.Image]:
+    dummy = ImageDraw.Draw(Image.new("RGB",(1,1)))
+    fnt = load_font(footer_font, weight=FOOTER_FONT_WEIGHT)
+    footer_h = dummy.textbbox((0,0), FOOTER_TEXT, font=fnt)[3]
+    required_bottom_space = footer_h + 40
 
-    # Add space for the footer text itself.
-    # We create a dummy canvas to measure the wrapped footer text height accurately.
-    dummy_draw = ImageDraw.Draw(Image.new("RGB", (1,1)))
-    footer_font_obj = load_font(footer_font, weight=FOOTER_FONT_WEIGHT)
-    footer_text_height = dummy_draw.textbbox((0,0), FOOTER_TEXT, font=footer_font_obj)[3] # Simplified height
-    required_bottom_space += footer_text_height + 24 # 24px is the gap above footer
-
-    # --- 2. Two-Pass Auto-Fit ---
-    # Pass 1: Render with a large scale to measure overflow.
-    print(">>> Auto-fit Pass 1: Measuring layout with a large scale...")
-    ideal_scale = 0.80  # A deliberately large scale likely to overflow
-    _, content_end_y = render_once_A2(
-        page_w, page_h, margin, num_cols, gutter_x, row_gap, title_font, subtitle_font,
-        caption_font, footer_font, ideal_scale, section_gap_extra, section2_title_size,
-        section2_sub_size, banner_max_height_fraction, parchment_brightness,
-        parchment_mode, featured_acharya_mode)
-
+    ideal_scale = 0.72
+    _, end_y = render_once_A2(page_w,page_h,margin,num_cols,gutter_x,row_gap,title_font,subtitle_font,
+                              caption_font,footer_font,ideal_scale,section_gap_extra,section2_title_size,section2_sub_size,
+                              banner_max_height_fraction,parchment_brightness,parchment_mode,featured_acharya_mode)
     target_y = page_h - required_bottom_space
-    overflow_pixels = content_end_y - target_y
-
-    # --- 3. Calculate Optimal Scale ---
-    if overflow_pixels > 0:
-        print(f">>> Layout overflows by {overflow_pixels} pixels at ideal scale.")
-        # This is a heuristic: assume overflow is proportional to image scale.
-        # We calculate how much we need to shrink the scale to eliminate the overflow.
-        # The 'content_end_y' is the total height used, so we find the reduction factor.
-        reduction_factor = (target_y / content_end_y)
-        final_scale = ideal_scale * reduction_factor
-        print(f">>> Calculating optimal scale: {final_scale:.3f}")
+    if end_y > target_y:
+        ratio = target_y / end_y
+        final_scale = max(0.60, round(ideal_scale * ratio, 3))
+        print(f">>> Overflow {end_y-target_y}px. Scale → {final_scale}")
     else:
-        # It fits even at the ideal scale, so we can use that.
         final_scale = ideal_scale
-        print(">>> Layout fits perfectly. No scaling adjustment needed.")
 
-    # --- 4. Final Render ---
-    print(f">>> Auto-fit Pass 2: Rendering final poster with scale {final_scale:.3f}...")
-    final_image, _ = render_once_A2(
-        page_w, page_h, margin, num_cols, gutter_x, row_gap, title_font, subtitle_font,
-        caption_font, footer_font, final_scale, section_gap_extra, section2_title_size,
-        section2_sub_size, banner_max_height_fraction, parchment_brightness,
-        parchment_mode, featured_acharya_mode)
+    img, end_y2 = render_once_A2(page_w,page_h,margin,num_cols,gutter_x,row_gap,title_font,subtitle_font,
+                                 caption_font,footer_font,final_scale,section_gap_extra,section2_title_size,section2_sub_size,
+                                 banner_max_height_fraction,parchment_brightness,parchment_mode,featured_acharya_mode)
+    if end_y2 > target_y:
+        bump = max(0.60, round(final_scale - 0.02, 3))
+        print(f">>> Minor overflow; retry at {bump}")
+        img, _ = render_once_A2(page_w,page_h,margin,num_cols,gutter_x,row_gap,title_font,subtitle_font,
+                                caption_font,footer_font,bump,section_gap_extra,section2_title_size,section2_sub_size,
+                                banner_max_height_fraction,parchment_brightness,parchment_mode,featured_acharya_mode)
+    return img
 
-    return final_image
-
-# --------------------------------------------------------------------
-# Main — A2 only
-# --------------------------------------------------------------------
+# ---------- Main ----------
 def main():
-    final_image = render_with_auto_fit(
-        page_w=4961, page_h=7016,   # A2 @ ~300dpi
-        margin=90,
-        num_cols=6,
-        gutter_x=30,
-        row_gap=34,
-        title_font=170,
-        subtitle_font=60,
-        caption_font=40,
-        footer_font=46,
-        img_scale=0.68,
-        section_gap_extra=80,
-        section2_title_size=110,
-        section2_sub_size=58, 
+    final = render_with_auto_fit(
+        page_w=4961, page_h=7016,     # A2 @ ~300dpi
+        margin=90, num_cols=6, gutter_x=30, row_gap=34,
+        title_font=180, subtitle_font=66, caption_font=42, footer_font=48,
+        img_scale=0.68, section_gap_extra=90,
+        section2_title_size=120, section2_sub_size=62,
         banner_max_height_fraction=0.05,
-        parchment_brightness=PARCHMENT_BRIGHTNESS,
-        parchment_mode=PARCHMENT_MODE,
-        featured_acharya_mode=FEATURED_ACHARYA_MODE,
-        # SHOW_SIGNATURE is used inside render_once_A2
+        parchment_brightness=PARCHMENT_BRIGHTNESS, parchment_mode=PARCHMENT_MODE,
+        featured_acharya_mode=FEATURED_ACHARYA_MODE
     )
-
-    if final_image:
-        # Save PNG
-        final_image.save(OUT_A2, quality=95)
-        print(f"Saved A2 poster as PNG → {OUT_A2}")
-        # Save PDF
-        pdf_path = OUT_A2.replace(".png", ".pdf")
-        final_image.save(pdf_path, "PDF", resolution=300.0, quality=95)
-        print(f"Saved A2 poster as PDF → {pdf_path}")
+    if final is None:
+        print("Render failed."); return
+    final.save(OUT_A2, quality=95)
+    print("Saved:", OUT_A2)
+    pdf_path = OUT_A2.replace(".png",".pdf")
+    final.save(pdf_path, "PDF", resolution=300.0, quality=95)
+    print("Saved:", pdf_path)
 
 if __name__ == "__main__":
     main()
