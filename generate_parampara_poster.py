@@ -1,12 +1,18 @@
 # build_poster_from_xlsx.py
 # A2 poster: Founders (F00 featured; F01..F17 in exactly 2 rows with contemporaries)
 # + Parakāla Jeeyars (IDs 1..36 mapped to image prefixes 0100..3600).
-# Deps: pip install pillow pandas openpyxl
+# Fixes in this version:
+#   - SHADOW_MODE switch: "none" (default) or "directional" for realistic shadows
+#   - Shadows (when enabled) are strictly circular and directional (no straight edges)
+#   - NumPy premultiply-based resize to avoid Pillow ImageMath deprecation warnings
+# Deps: pip install pillow pandas openpyxl numpy
 
 import os, re, sys, glob, math
 from typing import Optional, List, Tuple, Dict
+
+import numpy as np
 import pandas as pd
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance, ImageChops
 
 print(">>> Python:", sys.executable)
 
@@ -23,12 +29,15 @@ SUBTITLE_FONT_WEIGHT = "Bold"
 SECTION_FONT_WEIGHT  = "Bold"
 FOOTER_FONT_WEIGHT   = "Bold"
 
+# ---------- Shadow switches ----------
+SHADOW_MODE = "none"        # "none" | "directional"
+# when SHADOW_MODE="directional", the controls below apply
 SHADOW_COLOR_HEX: Optional[str] = None  # None = adaptive
 SHADOW_OPACITY   = 180
 SHADOW_DIRECTION = "SW"  # NW, NE, SW, SE, CE
 
-IMAGE_SHADOW_STRENGTH = 6
-IMAGE_SHADOW_BLUR     = 8
+IMAGE_SHADOW_STRENGTH = 6   # pixel offset for image shadows (when enabled)
+IMAGE_SHADOW_BLUR     = 8   # Gaussian radius
 MAGNIFY_FACTOR        = 1.10  # +10% for 'M' founders
 
 FOUNDERS_ROWS         = 2
@@ -130,7 +139,7 @@ def get_adaptive_colors(bg: Image.Image):
     luma = sum(0.299*r + 0.587*g + 0.114*b for r,g,b in px)/len(px)
     dark_text = (101,67,33); light_text = (255,245,220)
     dark_shadow=(30,20,0);   light_shadow=(40,25,10)
-    return (dark_text,dark_shadow) if luma>128 else (light_text,light_shadow)
+    return (dark_text,dark_shadow) if luma>128 else (light_text,dark_shadow)
 
 def draw_centered_text(img, text, y, size, color=None, max_width=None, line_gap=10, shadow_strength=3, font_weight='normal'):
     if not text: return y
@@ -180,6 +189,8 @@ def find_banner_path() -> Optional[str]:
     prefer = [
         os.path.join(IMAGES_DIR, "Parakala Matham Banner.png"),
         os.path.join(IMAGES_DIR, "Parakala_Matham_Banner.png"),
+        os.path.join(IMAGES_DIR, "Parakala Matham Banner.jpg"),
+        os.path.join(IMAGES_DIR, "Parakala_Matham_Banner.jpg"),
     ]
     for p in prefer:
         if os.path.isfile(p): return p
@@ -199,11 +210,10 @@ def draw_banner(canvas, y, page_w, margin, max_height_fraction=0.05, feather_rad
     if s < 1.0:
         new_w, new_h = max(1, int(b.width*s)), max(1, int(b.height*s))
         b = b.resize((new_w,new_h), Image.LANCZOS)
-    
     new_w, new_h = b.size
-    
-    if IMAGE_SHADOW_STRENGTH>0 and IMAGE_SHADOW_BLUR>0:
-        # Create a shadow from the image's alpha channel
+
+    # soft shadow from alpha (only if enabled)
+    if SHADOW_MODE == "directional" and IMAGE_SHADOW_STRENGTH>0 and IMAGE_SHADOW_BLUR>0:
         mask = b.getchannel('A')
         sh_col = (40,25,10,150) if not SHADOW_COLOR_HEX else (*_hex_to_rgb(SHADOW_COLOR_HEX), SHADOW_OPACITY)
         sh = Image.new("RGBA", b.size, sh_col)
@@ -217,13 +227,91 @@ def draw_banner(canvas, y, page_w, margin, max_height_fraction=0.05, feather_rad
     canvas.alpha_composite(b, (x,y))
     return y + new_h + 20
 
-def draw_separator_block(canvas, y, title_main, title_sub, main_size, sub_size, line_color=(212,175,55), margin=80):
-    d = ImageDraw.Draw(canvas)
-    y_line=y+12; d.line((margin,y_line, canvas.width-margin, y_line), fill=line_color, width=3)
-    y0 = y_line+18
-    y0 = draw_centered_text(canvas, title_main, y0, main_size, color=None, shadow_strength=4, font_weight=SECTION_FONT_WEIGHT, max_width=int(canvas.width*0.92), line_gap=8)
-    y0 = draw_centered_text(canvas, title_sub,  y0, sub_size,  color=None, shadow_strength=3, font_weight=SECTION_FONT_WEIGHT, max_width=int(canvas.width*0.92), line_gap=8)
-    return y0 + 10
+# ---------- Alpha-safe image helpers ----------
+def open_rgba(path: str) -> Image.Image:
+    """Open image as RGBA; for missing, return gray placeholder RGBA."""
+    try:
+        im = Image.open(path).convert("RGBA")
+        return im
+    except Exception:
+        im = Image.new("RGBA", (400, 400), (230,230,230,255))
+        d  = ImageDraw.Draw(im)
+        d.rectangle([0,0,399,399], outline=(120,120,120,255), width=2)
+        d.text((10,10), "Missing image", fill=(80,80,80,255))
+        return im
+
+def resize_rgba_premultiplied(im: Image.Image, new_w: int, new_h: int) -> Image.Image:
+    """Resize RGBA without fringe by premultiplying alpha before scaling (NumPy; no ImageMath.eval)."""
+    if im.mode != "RGBA":
+        im = im.convert("RGBA")
+    im_np = np.array(im, dtype=np.uint8)         # H x W x 4
+    rgb = im_np[..., :3].astype(np.float32)
+    a   = im_np[..., 3:4].astype(np.float32)     # keep 4th dim
+
+    # Premultiply
+    rgb_p = (rgb * (a / 255.0))
+
+    # Stack premultiplied + alpha back
+    premul = np.concatenate([rgb_p, a], axis=-1).astype(np.float32)
+    premul_img = Image.fromarray(np.clip(premul, 0, 255).astype(np.uint8), "RGBA")
+
+    # Resize premultiplied
+    premul_resized = premul_img.resize((new_w, new_h), Image.LANCZOS)
+
+    # Unpremultiply (avoid div0)
+    pm_np = np.array(premul_resized, dtype=np.uint8).astype(np.float32)
+    rgb_p2 = pm_np[..., :3]
+    a2     = pm_np[..., 3:4]
+    denom  = np.maximum(a2, 1.0)
+    rgb_u  = 255.0 * (rgb_p2 / denom)
+
+    out = np.concatenate([np.clip(rgb_u, 0, 255), a2], axis=-1).astype(np.uint8)
+    return Image.fromarray(out, "RGBA")
+
+def make_circular(im: Image.Image, out_w: int, out_h: int) -> Tuple[Image.Image, Image.Image, Image.Image]:
+    """
+    Resize RGBA to fit within (out_w, out_h) keeping aspect, then
+    - combined_mask = original alpha ∧ circle  (used for the subject)
+    - circle_mask   = pure circle (used for shadow to avoid any rectangular remnants)
+    Returns (oval_rgba, combined_mask, circle_mask)
+    """
+    if im.mode != "RGBA":
+        im = im.convert("RGBA")
+    iw, ih = im.size
+    scale = min(out_w/iw, out_h/ih)
+    w = max(1, int(iw*scale)); h = max(1, int(ih*scale))
+
+    # alpha-safe resize
+    im = resize_rgba_premultiplied(im, w, h)
+
+    # original alpha after resize
+    _, _, _, a = im.split()
+    # circular mask
+    circle_mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(circle_mask).ellipse([0,0,w-1,h-1], fill=255)
+    # combined mask (AND) → avoids rectangular edges and respects PNG transparency
+    combined_mask = ImageChops.multiply(a, circle_mask)
+
+    # put mask back
+    im.putalpha(combined_mask)
+    return im, combined_mask, circle_mask
+
+def shadow_from_mask(mask: Image.Image, color=(40,25,10,150), blur=8) -> Image.Image:
+    """Create blurred shadow from given alpha mask."""
+    sh = Image.new("RGBA", mask.size, color)
+    sh.putalpha(mask)
+    if blur > 0:
+        sh = sh.filter(ImageFilter.GaussianBlur(radius=blur))
+    return sh
+
+def maybe_draw_shadow(canvas: Image.Image, mask_for_shadow: Image.Image, dest_xy: Tuple[int,int]):
+    """Draws a clean circular, directional shadow if enabled."""
+    if SHADOW_MODE != "directional":
+        return
+    sh_col = (40,25,10,150) if not SHADOW_COLOR_HEX else (*_hex_to_rgb(SHADOW_COLOR_HEX), SHADOW_OPACITY)
+    sh = shadow_from_mask(mask_for_shadow, color=sh_col, blur=IMAGE_SHADOW_BLUR)
+    off = get_shadow_offset(IMAGE_SHADOW_STRENGTH)
+    canvas.alpha_composite(sh, (dest_xy[0] + off[0], dest_xy[1] + off[1]))
 
 # ---------- Data ----------
 def read_xlsx():
@@ -303,7 +391,6 @@ def index_images(images_dir: str):
             parakala_map[m_p.group(1)] = full
             continue
 
-    # Diagnostics
     print(f">>> Indexed founders images: {len(founders_map)}")
     print(f">>> Indexed Parakāla images: {len(parakala_map)}")
     return founders_map, parakala_map
@@ -325,20 +412,17 @@ def render_once_A2(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
         fid = it['id']
         key = f"f{fid:02d}"
         path = f_map.get(key, "")
-        if not path:
-            print(f">>> Missing founder image for {key} – placeholder will be used.")
-        it2 = {**it, "path": path}
         if fid == 0 and featured_acharya_mode:
-            featured = it2
+            featured = {**it, "path": path}
         else:
             gid = str(it['group_id'])
-            grouped.setdefault(gid, []).append(it2)
+            grouped.setdefault(gid, []).append({**it, "path": path})
 
-    # Map Parakāla — IMPORTANT: Excel 1..36 -> filenames 0100..3600
+    # Map Parakāla — Excel 1..36 -> filenames 0100..3600
     parakala_pairs: List[Tuple[str,str]] = []
     missing = []
     for it in parakala_data:
-        code = f"{it['id']:02d}00"  # 1 -> "0100", 12 -> "1200"
+        code = f"{it['id']:02d}00"  # 1 -> 0100, ..., 36 -> 3600
         path = p_map.get(code, "")
         if not path:
             missing.append(code)
@@ -348,11 +432,11 @@ def render_once_A2(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
 
     # Background
     if os.path.isfile(PARCHMENT_PATH):
-        if parchment_mode=='stretch':
+        if PARCHMENT_MODE=='stretch':
             parchment = Image.open(PARCHMENT_PATH).convert("RGB").resize((page_w,page_h), Image.LANCZOS)
         else:
             src = Image.open(PARCHMENT_PATH).convert("RGB")
-            parchment = Image.new("RGB", (page_w,page_h))
+            parchment = Image.new("RGB",(page_w,page_h))
             tw,th = src.size
             for yy in range(0,page_h,th):
                 for xx in range(0,page_w,tw):
@@ -375,33 +459,29 @@ def render_once_A2(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
                            font_weight=SUBTITLE_FONT_WEIGHT, max_width=int(page_w*0.92), line_gap=10)
     y += 22
 
-    # Featured F00
+    # ---------- Featured F00 ----------
     if featured:
         img_w_max = int(page_w*0.22)
         img_h_tgt = int(img_w_max*img_scale*1.2)
-        path = featured["path"]
-        try:
-            im = Image.open(path).convert("RGB")
-        except Exception:
-            im = Image.new("RGB",(img_w_max,img_h_tgt),(230,230,230))
-        iw,ih = im.size
+        im = open_rgba(featured["path"])
+        iw, ih = im.size
         s = min(img_w_max/iw, img_h_tgt/ih)
-        w,h = max(1,int(iw*s)), max(1,int(ih*s))
-        im = im.resize((w,h), Image.LANCZOS)
-        mask = Image.new("L",(w,h),0); ImageDraw.Draw(mask).ellipse([0,0,w-1,h-1], fill=255)
-        im_oval = Image.new("RGBA",(w,h)); im_oval.paste(im,(0,0),mask=mask)
-        stroke = Image.new("RGBA",(w+4,h+4),(0,0,0,0))
+        w, h = max(1,int(iw*s)), max(1,int(ih*s))
+
+        im_circ, comb_mask, circle_mask = make_circular(im, w, h)
+
+        # shadow (if enabled)
+        x_center = (page_w - w)//2
+        maybe_draw_shadow(canvas, circle_mask, (x_center, y))
+
+        # stroke + subject
+        stroke = Image.new("RGBA", (w+4, h+4), (0,0,0,0))
         ImageDraw.Draw(stroke).ellipse([0,0,w+3,h+3], outline=(212,175,55,255), width=3)
-        if IMAGE_SHADOW_STRENGTH>0 and IMAGE_SHADOW_BLUR>0:
-            sh_col = (40,25,10,150) if not SHADOW_COLOR_HEX else (*_hex_to_rgb(SHADOW_COLOR_HEX), SHADOW_OPACITY)
-            sh = Image.new("RGBA",(w,h),sh_col); sh.putalpha(mask)
-            sh = sh.filter(ImageFilter.GaussianBlur(radius=IMAGE_SHADOW_BLUR))
-            off = get_shadow_offset(IMAGE_SHADOW_STRENGTH)
-            canvas.alpha_composite(sh, ((page_w-w)//2+off[0], y+off[1]))
-        x = (page_w-w)//2; img_y = y
-        canvas.alpha_composite(stroke,(x-2,img_y-2))
-        canvas.alpha_composite(im_oval,(x,img_y))
-        y2 = img_y + h + 12
+        canvas.alpha_composite(stroke,(x_center-2,y-2))
+        canvas.alpha_composite(im_circ,(x_center,y))
+
+        # caption
+        y2 = y + h + 12
         cap_font = load_font(42, weight=FOOTER_FONT_WEIGHT)
         lw,lh = _text_size(d, featured["caption"], cap_font)
         bg = canvas.crop(((page_w-lw)//2, y2, (page_w+lw)//2, y2+lh))
@@ -411,20 +491,19 @@ def render_once_A2(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
         y = y2 + lh + 28
 
     # ---------- Founders in EXACTLY 2 rows; contemporaries stacked ----------
-    # Preserve group encounter order
-    grouped: Dict[str, List[dict]] = {}
+    grouped_plain: Dict[str, List[dict]] = {}
     for it in founders_data:
         if it['id'] == 0 and FEATURED_ACHARYA_MODE:  # already drawn
             continue
         gid = str(it['group_id'])
-        grouped.setdefault(gid, []).append(it)
+        grouped_plain.setdefault(gid, []).append(it)
 
     ordered_groups: List[List[dict]] = []
     seen=set()
-    for it in sum(grouped.values(), []):
+    for it in sum(grouped_plain.values(), []):
         gid = str(it['group_id'])
         if gid in seen: continue
-        ordered_groups.append(grouped[gid]); seen.add(gid)
+        ordered_groups.append(grouped_plain[gid]); seen.add(gid)
 
     total_groups = len(ordered_groups)
     rows_groups = [[],[]]
@@ -441,50 +520,48 @@ def render_once_A2(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
         def draw_cell(x:int, y0:int, img_path:str, caption:str, magnification:float=1.0, measure_only:bool=False) -> int:
             img_w_max = int(cell_w * magnification)
             img_h_tgt = int(img_w_max * img_scale)
-            try:
-                im = Image.open(img_path).convert("RGB")
-            except Exception:
-                im = Image.new("RGB",(img_w_max,img_h_tgt),(230,230,230))
-                dd = ImageDraw.Draw(im); dd.rectangle([0,0,im.width-1,im.height-1], outline=(120,120,120), width=2)
-                dd.text((10,10),"Missing image", fill=(80,80,80))
-            iw,ih = im.size; s = min(img_w_max/iw, img_h_tgt/ih)
-            w,h = max(1,int(iw*s)), max(1,int(ih*s))
-            im = im.resize((w,h), Image.LANCZOS)
-            mask = Image.new("L",(w,h),0); ImageDraw.Draw(mask).ellipse([0,0,w-1,h-1], fill=255)
+
+            im_src = open_rgba(img_path)
+            iw, ih = im_src.size
+            s = min(img_w_max/iw, img_h_tgt/ih)
+            w, h = max(1,int(iw*s)), max(1,int(ih*s))
+
+            im_circ, comb_mask, circle_mask = make_circular(im_src, w, h)
+
             if not measure_only:
-                im_oval = Image.new("RGBA",(w,h)); im_oval.paste(im,(0,0),mask=mask)
-                stroke = Image.new("RGBA",(w+4,h+4),(0,0,0,0))
-                ImageDraw.Draw(stroke).ellipse([0,0,w+3,h+3], outline=(212,175,55,255), width=2)
-                if IMAGE_SHADOW_STRENGTH>0 and IMAGE_SHADOW_BLUR>0:
-                    sh_col = (40,25,10,150) if not SHADOW_COLOR_HEX else (*_hex_to_rgb(SHADOW_COLOR_HEX), SHADOW_OPACITY)
-                    sh = Image.new("RGBA",(w,h),sh_col); sh.putalpha(mask)
-                    sh = sh.filter(ImageFilter.GaussianBlur(radius=IMAGE_SHADOW_BLUR))
-                    off = get_shadow_offset(IMAGE_SHADOW_STRENGTH)
-                    canvas.alpha_composite(sh, (x+(cell_w-w)//2+off[0], y0+off[1]))
+                # shadow (if enabled)
                 ix = x + (cell_w - w)//2
+                maybe_draw_shadow(canvas, circle_mask, (ix, y0))
+
+                # stroke + subject
+                stroke = Image.new("RGBA", (w+4, h+4), (0,0,0,0))
+                ImageDraw.Draw(stroke).ellipse([0,0,w+3,h+3], outline=(212,175,55,255), width=2)
                 canvas.alpha_composite(stroke,(ix-2,y0-2))
-                canvas.alpha_composite(im_oval,(ix,y0))
+                canvas.alpha_composite(im_circ,(ix,y0))
+
             cap_font = load_font(caption_font)
             words = caption.split(); lines=[]; line=""
             max_text_w = cell_w - 6
+            dummy = ImageDraw.Draw(Image.new("RGBA",(1,1)))
+            measurer = dummy if measure_only else ImageDraw.Draw(canvas)
             for tk in words:
-                test=(line+" "+tk).strip(); tw,_=_text_size(d,test,cap_font)
+                test=(line+" "+tk).strip(); tw,_=_text_size(measurer, test, cap_font)
                 if tw<=max_text_w or not line: line=test
                 else: lines.append(line); line=tk
             if line: lines.append(line)
             ty = y0 + h + 6
             if measure_only:
-                total_h = sum(_text_size(d, li, cap_font)[1] for li in lines) + (len(lines)-1)*3
+                total_h = sum(_text_size(measurer, li, cap_font)[1] for li in lines) + (len(lines)-1)*3
                 return (ty - y0) + total_h
             if lines:
-                max_lw = max(_text_size(d, li, cap_font)[0] for li in lines)
-                total_h = sum(_text_size(d, li, cap_font)[1] for li in lines) + (len(lines)-1)*3
+                max_lw = max(_text_size(measurer, li, cap_font)[0] for li in lines)
+                total_h = sum(_text_size(measurer, li, cap_font)[1] for li in lines) + (len(lines)-1)*3
                 bg = canvas.crop((x+(cell_w-max_lw)//2, ty, x+(cell_w-max_lw)//2+max_lw, ty+total_h))
                 fg,sh = get_adaptive_colors(bg)
             else:
                 fg,sh = (70,50,0),(30,20,0)
             for li in lines:
-                lw,lh=_text_size(d, li, cap_font); tx=x+(cell_w-lw)//2
+                lw,lh=_text_size(measurer, li, cap_font); tx=x+(cell_w-lw)//2
                 d.text((tx+2, ty+2), li, font=cap_font, fill=sh)
                 d.text((tx,   ty  ), li, font=cap_font, fill=fg)
                 ty += lh + 3
@@ -497,7 +574,6 @@ def render_once_A2(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
             acc=0
             for item in grp:
                 magn = MAGNIFY_FACTOR if item.get("is_main") else 1.0
-                # find image path for this item from founders map:
                 path = f_map.get(f"f{item['id']:02d}", "")
                 acc += draw_cell(0,0,path, item["caption"], magnification=magn, measure_only=True) + (row_gap//2)
             if acc>0: acc -= (row_gap//2)
@@ -533,27 +609,23 @@ def render_once_A2(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
     def draw_cell_grid(x:int, y0:int, img_path:str, caption:str) -> int:
         img_w_max = cell_w
         img_h_tgt = int(img_w_max*img_scale)
-        try:
-            im = Image.open(img_path).convert("RGB")
-        except Exception:
-            im = Image.new("RGB",(img_w_max,img_h_tgt),(230,230,230))
-            dd=ImageDraw.Draw(im); dd.rectangle([0,0,im.width-1,im.height-1], outline=(120,120,120), width=2)
-            dd.text((10,10),"Missing image", fill=(80,80,80))
-        iw,ih = im.size; s = min(img_w_max/iw, img_h_tgt/ih)
-        w,h = max(1,int(iw*s)), max(1,int(ih*s))
-        im = im.resize((w,h), Image.LANCZOS)
-        mask = Image.new("L",(w,h),0); ImageDraw.Draw(mask).ellipse([0,0,w-1,h-1], fill=255)
-        im_oval = Image.new("RGBA",(w,h)); im_oval.paste(im,(0,0),mask=mask)
-        stroke = Image.new("RGBA",(w+4,h+4),(0,0,0,0)); ImageDraw.Draw(stroke).ellipse([0,0,w+3,h+3], outline=(212,175,55,255), width=2)
-        if IMAGE_SHADOW_STRENGTH>0 and IMAGE_SHADOW_BLUR>0:
-            sh_col = (40,25,10,150) if not SHADOW_COLOR_HEX else (*_hex_to_rgb(SHADOW_COLOR_HEX), SHADOW_OPACITY)
-            sh = Image.new("RGBA",(w,h),sh_col); sh.putalpha(mask)
-            sh = sh.filter(ImageFilter.GaussianBlur(radius=IMAGE_SHADOW_BLUR))
-            off = get_shadow_offset(IMAGE_SHADOW_STRENGTH)
-            canvas.alpha_composite(sh, (x+(cell_w-w)//2+off[0], y0+off[1]))
+
+        im_src = open_rgba(img_path)
+        iw, ih = im_src.size
+        s = min(img_w_max/iw, img_h_tgt/ih)
+        w, h = max(1,int(iw*s)), max(1,int(ih*s))
+
+        im_circ, comb_mask, circle_mask = make_circular(im_src, w, h)
+
+        # shadow (if enabled)
         ix = x + (cell_w-w)//2
+        maybe_draw_shadow(canvas, circle_mask, (ix, y0))
+
+        # stroke + subject
+        stroke = Image.new("RGBA", (w+4, h+4), (0,0,0,0))
+        ImageDraw.Draw(stroke).ellipse([0,0,w+3,h+3], outline=(212,175,55,255), width=2)
         canvas.alpha_composite(stroke,(ix-2,y0-2))
-        canvas.alpha_composite(im_oval,(ix,y0))
+        canvas.alpha_composite(im_circ,(ix,y0))
 
         cap_font = load_font(caption_font)
         words = caption.split(); lines=[]; line=""
@@ -573,8 +645,8 @@ def render_once_A2(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
             fg,sh=(70,50,0),(30,20,0)
         for li in lines:
             lw,lh=_text_size(d, li, cap_font); tx=x+(cell_w-lw)//2
-            d.text((tx+2,ty+2), li, font=cap_font, fill=sh)
-            d.text((tx,  ty  ), li, font=cap_font, fill=fg)
+            ImageDraw.Draw(canvas).text((tx+2,ty+2), li, font=cap_font, fill=sh)
+            ImageDraw.Draw(canvas).text((tx,  ty  ), li, font=cap_font, fill=fg)
             ty += lh + 3
         print_font_choice_once()
         return ty - y0
@@ -594,6 +666,20 @@ def render_once_A2(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
     draw_centered_text(canvas, FOOTER_TEXT, footer_y, footer_font, color=None, shadow_strength=4,
                        font_weight=FOOTER_FONT_WEIGHT, max_width=int(page_w*0.92))
     return canvas.convert("RGB"), footer_y
+
+# Separator block (placed after because it depends on draw_centered_text)
+def draw_separator_block(canvas, y, title_main, title_sub, main_size, sub_size, line_color=(212,175,55), margin=80):
+    d = ImageDraw.Draw(canvas)
+    y_line=y+12
+    d.line((margin,y_line, canvas.width-margin, y_line), fill=line_color, width=3)
+    y0 = y_line+18
+    y0 = draw_centered_text(canvas, title_main, y0, main_size, color=None,
+                            shadow_strength=4, font_weight=SECTION_FONT_WEIGHT,
+                            max_width=int(canvas.width*0.92), line_gap=8)
+    y0 = draw_centered_text(canvas, title_sub,  y0, sub_size,  color=None,
+                            shadow_strength=3, font_weight=SECTION_FONT_WEIGHT,
+                            max_width=int(canvas.width*0.92), line_gap=8)
+    return y0 + 10
 
 # ---------- Auto-fit wrapper ----------
 def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter_x=30, row_gap=34,
