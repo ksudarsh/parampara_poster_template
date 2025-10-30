@@ -22,7 +22,7 @@ print(">>> Python:", sys.executable)
 # ---------- Text ----------
 TITLE_TEXT      = "Sri Parakala Matham Guru Parampara"
 SUBTITLE_TEXT   = "Established by Sri Vedanta Desika in 1359 CE"
-FOOTER_TEXT     = "Sri Parakala Matham – The Eternal Lineage of Sri Vedanta Desika"
+FOOTER_TEXT     = "Sri Parakala Swamy Mutt – The Eternal Lineage of Sri Vedanta Desika"
 SECTION2_TITLE  = "Sri Parakāla Acharyas"
 SECTION2_SUB    = "Lineage of Brahmatantra Svatantra Swamis"
 
@@ -36,7 +36,7 @@ FOOTER_FONT_WEIGHT   = "Bold"
 SHADOW_MODE = "none"        # "none" | "directional"
 SHADOW_COLOR_HEX: Optional[str] = None  # None = adaptive
 SHADOW_OPACITY   = 180
-SHADOW_DIRECTION = "SW"  # NW, NE, SW, SE, CE
+SHADOW_DIRECTION = "NW"  # NW, NE, SW, SE, CE
 IMAGE_SHADOW_STRENGTH = 6
 IMAGE_SHADOW_BLUR     = 8
 
