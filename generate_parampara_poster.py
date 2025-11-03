@@ -377,9 +377,15 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
                    title_font:int, subtitle_font:int, caption_font:int,
                    img_scale:float, section_gap_extra:int, section2_title_size:int, section2_sub_size:int,
                    banner_max_height_fraction:float, parchment_brightness:float=1.0,
-                   parchment_mode:str='stretch', featured_acharya_mode:bool=True) -> Tuple[Image.Image, int]:
-    founders_data, parakala_data = read_xlsx()
-    f_map, p_map = index_images(IMAGES_DIR)
+                   parchment_mode:str='stretch', featured_acharya_mode:bool=True,
+                   founders_data: Optional[List[dict]] = None, parakala_data: Optional[List[dict]] = None,
+                   founders_map: Optional[Dict[str,str]] = None, parakala_map: Optional[Dict[str,str]] = None
+                   ) -> Tuple[Image.Image, int]:
+    if founders_data is None or parakala_data is None:
+        founders_data, parakala_data = read_xlsx()
+    if founders_map is None or parakala_map is None:
+        founders_map, parakala_map = index_images(IMAGES_DIR)
+    f_map, p_map = founders_map, parakala_map
 
     # Background
     if os.path.isfile(PARCHMENT_PATH):
@@ -592,7 +598,6 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
         return ty - y0
 
     # draw Parakāla rows
-    founders, parakala_data = read_xlsx()
     idx=0
     while idx < len(parakala_data):
         row_items = []
@@ -653,6 +658,9 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
                          img_scale=0.68, section_gap_extra=90, section2_title_size=120, section2_sub_size=62,
                          banner_max_height_fraction=0.05, parchment_brightness=1.0, parchment_mode='stretch',
                          featured_acharya_mode=True) -> Optional[Image.Image]:
+    founders_data, parakala_data = read_xlsx()
+    f_map, p_map = index_images(IMAGES_DIR)
+
     # Measure footer band
     dummy = ImageDraw.Draw(Image.new("RGB",(1,1)))
     fnt = load_font(footer_font, weight=FOOTER_FONT_WEIGHT)
@@ -672,7 +680,9 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
         return render_content(page_w,page_h,margin,num_cols,gutter_x,row_gap,
                               title_font,subtitle_font,caption_font,
                               scale,section_gap_extra,section2_title_size,section2_sub_size,
-                              banner_max_height_fraction,parchment_brightness,parchment_mode,featured_acharya_mode)
+                              banner_max_height_fraction,parchment_brightness,parchment_mode,featured_acharya_mode,
+                              founders_data=founders_data, parakala_data=parakala_data,
+                              founders_map=f_map, parakala_map=p_map)
 
     # First measure
     canvas, end_y = measure(start_scale)
