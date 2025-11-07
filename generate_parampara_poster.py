@@ -10,7 +10,7 @@
 #
 # Deps: pip install pillow pandas openpyxl numpy
 
-import os, re, sys, glob, math, unicodedata
+import os, re, sys, glob, math, unicodedata, shutil, html
 from typing import Optional, List, Tuple, Dict
 
 import numpy as np
@@ -72,6 +72,9 @@ PARCHMENT_PATH    = os.path.join(ASSETS_DIR, "parchment_bg.jpg")
 MANDALA_TILE_PATH = os.path.join(ASSETS_DIR, "mandala_tile.png")
 SIGNATURE_PATH    = os.path.join(ASSETS_DIR, "signature.png")
 OUT_A2            = os.path.join(HERE, "Sri_Parakala_Matham_Guru_Parampara_GRID_A2.png")
+HTML_EXPORT_DIR   = os.path.join(HERE, "html_parampara_chart")
+HTML_IMAGES_DIR   = os.path.join(HTML_EXPORT_DIR, "images")
+HTML_OUTPUT_PATH  = os.path.join(HTML_EXPORT_DIR, "index.html")
 
 # ---------- Fonts ----------
 _FONT_USED = None
@@ -363,7 +366,7 @@ def read_xlsx():
             print(f">>> WARNING: Skipping founder row {i} due to error: {e} (Row data: {row.to_list()})")
             continue
 
-    # Parak??la: optional header skip
+    # Parakala: optional header skip
     try: first_val_p = normalize_ascii_lower(df_p.iloc[0,0])
     except Exception: first_val_p = ""
     if any(k in first_val_p for k in ("sl no","slno","id","no","s.no")):
@@ -411,6 +414,313 @@ def index_images(images_dir: str):
     print(f">>> Indexed founders images: {len(founders_map)}")
     print(f">>> Indexed Parakāla images: {len(parakala_map)}")
     return founders_map, parakala_map
+
+# ---------- HTML helpers ----------
+def ensure_dir(path: str):
+    os.makedirs(path, exist_ok=True)
+
+def prepare_html_image_map(founders: List[dict], parakala: List[dict],
+                           founders_map: Dict[str,str], parakala_map: Dict[str,str]) -> Dict[str, Dict[str,str]]:
+    ensure_dir(HTML_EXPORT_DIR)
+    ensure_dir(HTML_IMAGES_DIR)
+    rel_map: Dict[str, Dict[str,str]] = {}
+    used_names: Dict[str,str] = {}
+
+    def register(code: str, src: Optional[str]):
+        if not src or not os.path.isfile(src):
+            return
+        base_name = os.path.basename(src)
+        dest_name = base_name
+        stem, ext = os.path.splitext(base_name)
+        suffix = 1
+        while dest_name.lower() in used_names and os.path.abspath(used_names[dest_name.lower()]) != os.path.abspath(src):
+            dest_name = f"{stem}_{code}_{suffix}{ext}"
+            suffix += 1
+        dest_path = os.path.join(HTML_IMAGES_DIR, dest_name)
+        if os.path.abspath(src) != os.path.abspath(dest_path):
+            shutil.copy2(src, dest_path)
+        used_names[dest_name.lower()] = src
+        rel_map[code] = {"file": dest_name, "rel": f"images/{dest_name}"}
+
+    for item in founders:
+        code = f"f{int(item['id']):02d}".lower()
+        register(code, founders_map.get(code, ""))
+    for item in parakala:
+        code = f"{int(item['id']):02d}00"
+        register(code, parakala_map.get(code, ""))
+    return rel_map
+
+def build_html_document(founders: List[dict], parakala: List[dict], img_rel_map: Dict[str, Dict[str,str]]) -> str:
+    def card_image_html(img_meta: Optional[Dict[str,str]], alt_text: str) -> str:
+        if img_meta and img_meta.get("rel"):
+            rel = img_meta["rel"]
+            file_name = img_meta.get("file", "")
+            return (f'<img src="{html.escape(rel)}" data-img-file="{html.escape(file_name)}" '
+                    f'alt="{html.escape(alt_text)}" loading="lazy" decoding="async" />')
+        return '<div class="img-missing">Image coming soon</div>'
+
+    founder_cards = []
+    for item in founders:
+        fid = int(item["id"])
+        code = f"f{fid:02d}"
+        key = code.lower()
+        founder_cards.append({
+            "code": code,
+            "name": item["caption"],
+            "img": img_rel_map.get(key),
+            "link_target": f"#acharya-{code.lower()}",
+        })
+
+    parakala_cards = []
+    for item in parakala:
+        pid = int(item["id"])
+        code = f"p{pid:02d}"
+        img_key = f"{pid:02d}00"
+        parakala_cards.append({
+            "code": code,
+            "name": item["caption"],
+            "img": img_rel_map.get(img_key),
+            "link_target": f"#acharya-{code.lower()}",
+        })
+
+    def card_html(card: dict, extra_classes: str = "") -> str:
+        classes = ["acharya-card"]
+        if extra_classes:
+            classes.append(extra_classes)
+        class_attr = " ".join(classes)
+        href = card.get("link_target") or "#"
+        image_html = card_image_html(card.get("img"), card["name"])
+        caption = html.escape(card["name"])
+        return (
+            f'<a class="{class_attr}" href="{html.escape(href)}" id="card-{card["code"].lower()}">'
+            f'  <div class="image-frame">{image_html}</div>'
+            f'  <div class="caption">{caption}</div>'
+            f'</a>'
+        )
+
+    hero_html = ""
+    regular_founders = founder_cards
+    if founder_cards:
+        hero_card = founder_cards[0]
+        hero_html = f'<div class="hero-wrapper">{card_html(hero_card, "hero-card")}</div>'
+        regular_founders = founder_cards[1:]
+    founders_html = "".join(card_html(card) for card in regular_founders)
+    parakala_html = "".join(card_html(card, "parakala-card") for card in parakala_cards)
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{html.escape(TITLE_TEXT)}</title>
+  <style>
+    :root {{
+      --bg-main: #f8f4ec;
+      --accent: #c59d2f;
+      --text-main: #2d1a0f;
+      --card-bg: #ffffff;
+    }}
+    * {{
+      box-sizing: border-box;
+    }}
+    body {{
+      margin: 0;
+      font-family: "Gentium Plus","Noto Serif","Georgia",serif;
+      background: var(--bg-main);
+      color: var(--text-main);
+      line-height: 1.55;
+    }}
+    main {{
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 32px 20px 80px;
+    }}
+    header {{
+      text-align: center;
+      margin-bottom: 40px;
+    }}
+    header h1 {{
+      font-size: clamp(2.4rem, 4vw, 3.6rem);
+      margin: 0 0 0.5rem;
+      letter-spacing: 0.04em;
+    }}
+    header p {{
+      font-size: clamp(1.1rem, 2vw, 1.5rem);
+      margin: 0;
+      color: #6b4d1f;
+    }}
+    h2.section-title {{
+      font-size: clamp(1.6rem, 2.5vw, 2.3rem);
+      text-align: center;
+      margin: 50px 0 10px;
+      letter-spacing: 0.06em;
+    }}
+    p.section-subtitle {{
+      text-align: center;
+      margin-bottom: 32px;
+      color: #795c2c;
+    }}
+    .acharya-card {{
+      text-decoration: none;
+      color: inherit;
+      background: transparent;
+      border-radius: 24px;
+      border: 1px solid rgba(0,0,0,0.08);
+      padding: 1.35rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      align-items: center;
+      text-align: center;
+      backdrop-filter: blur(0.5px);
+      transition: transform 0.18s ease, box-shadow 0.18s ease;
+      min-height: 100%;
+      max-width: 260px;
+      flex: 1 1 220px;
+    }}
+    .acharya-card:hover {{
+      transform: translateY(-4px);
+      box-shadow: 0 18px 36px rgba(0,0,0,0.12);
+    }}
+    .image-frame {{
+      width: min(260px, 70vw);
+      aspect-ratio: 1 / 1;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 5px solid var(--accent);
+      background: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }}
+    .hero-wrapper {{
+      display: flex;
+      justify-content: center;
+      margin-bottom: 30px;
+    }}
+    .hero-card {{
+      max-width: min(360px, 85vw);
+      flex: 0 0 auto;
+    }}
+    .hero-card .image-frame {{
+      width: min(360px, 85vw);
+      border-width: 6px;
+    }}
+    .image-frame img {{
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }}
+    .img-missing {{
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      color: #9a7736;
+      font-size: 0.95rem;
+      text-align: center;
+    }}
+    .caption {{
+      font-size: 1.15rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }}
+    .acharya-grid {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.25rem;
+      justify-content: center;
+    }}
+    .parakala-grid {{
+      margin-top: 30px;
+    }}
+    .parakala-card .image-frame {{
+      width: min(200px, 60vw);
+      border-width: 4px;
+    }}
+    @media (max-width: 640px) {{
+      .acharya-card {{
+          padding: 1.25rem;
+      }}
+      .image-frame {{
+          width: min(220px, 80vw);
+      }}
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>{html.escape(TITLE_TEXT)}</h1>
+      <p>{html.escape(SUBTITLE_TEXT)}</p>
+    </header>
+    <section>
+      <h2 class="section-title">Founders & Early Āchāryas</h2>
+      <p class="section-subtitle">Including contemporaneous disciples within each lineage cluster</p>
+      {hero_html}
+      <div class="acharya-grid founders-grid">
+        {founders_html}
+      </div>
+    </section>
+    <section>
+      <h2 class="section-title">{html.escape(SECTION2_TITLE)}</h2>
+      <p class="section-subtitle">{html.escape(SECTION2_SUB)}</p>
+      <div class="acharya-grid parakala-grid">
+        {parakala_html}
+      </div>
+    </section>
+  </main>
+  <script>
+    (function() {{
+      // Update this path to point all images to a different root (e.g., a CDN or media library URL).
+      var IMG_ROOT = "./images/";
+      if (!IMG_ROOT) {{ return; }}
+      var normalized = IMG_ROOT.endsWith("/") ? IMG_ROOT : IMG_ROOT + "/";
+      document.querySelectorAll("img[data-img-file]").forEach(function(img) {{
+        var file = img.getAttribute("data-img-file");
+        if (!file) {{ return; }}
+        img.src = normalized + file;
+      }});
+    }})();
+  </script>
+</body>
+</html>
+"""
+
+def generate_html_bundle(founders: List[dict], parakala: List[dict],
+                         founders_map: Dict[str,str], parakala_map: Dict[str,str]):
+    rel_map = prepare_html_image_map(founders, parakala, founders_map, parakala_map)
+    html_doc = build_html_document(founders, parakala, rel_map)
+    ensure_dir(HTML_EXPORT_DIR)
+    with open(HTML_OUTPUT_PATH, "w", encoding="utf-8") as fh:
+        fh.write(html_doc)
+    print(f"Saved HTML poster to: {HTML_OUTPUT_PATH}")
+    print(f"Copied {len(rel_map)} images into: {HTML_IMAGES_DIR}")
+
+def prompt_output_choice() -> Dict[str,bool]:
+    default = {"png": True, "pdf": True, "html": False}
+    try:
+        resp = input("Select output format (PDF/PNG/HTML/ALL) [PDF+PNG]: ").strip().lower()
+    except EOFError:
+        resp = ""
+    if not resp:
+        return default
+    tokens = [tok for tok in re.split(r"[\\s,/+]+", resp) if tok]
+    if not tokens:
+        return default
+    if any(tok == "all" for tok in tokens):
+        return {"png": True, "pdf": True, "html": True}
+    selection = {"png": False, "pdf": False, "html": False}
+    for tok in tokens:
+        if tok in selection:
+            selection[tok] = True
+    if not any(selection.values()):
+        return default
+    return selection
+
 
 # ---------- Separator ----------
 def draw_separator_block(canvas, y, title_main, title_sub, main_size, sub_size, line_color=(212,175,55), margin=80):
@@ -772,23 +1082,38 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
 
 # ---------- Main ----------
 def main():
-    final = render_with_auto_fit(
-        page_w=4961, page_h=7016,     # A2 @ ~300dpi
-        margin=90, num_cols=6, gutter_x=30, row_gap=34,
-        title_font=180, subtitle_font=66, caption_font=42, footer_font=52,
-        img_scale=0.68, section_gap_extra=90,
-        section2_title_size=120, section2_sub_size=62,
-        banner_max_height_fraction=0.05,
-        parchment_brightness=PARCHMENT_BRIGHTNESS, parchment_mode=PARCHMENT_MODE,
-        featured_acharya_mode=FEATURED_ACHARYA_MODE
-    )
-    if final is None:
-        print("Render failed."); return
-    final.save(OUT_A2, quality=95)
-    print("Saved:", OUT_A2)
-    pdf_path = OUT_A2.replace(".png",".pdf")
-    final.save(pdf_path, "PDF", resolution=300.0, quality=95)
-    print("Saved:", pdf_path)
+    founders_data, parakala_data = read_xlsx()
+    founders_map, parakala_map = index_images(IMAGES_DIR)
+    choice = prompt_output_choice()
+    if not any(choice.values()):
+        print("No output format selected; exiting.")
+        return
+
+    final = None
+    if choice["png"] or choice["pdf"]:
+        final = render_with_auto_fit(
+            page_w=4961, page_h=7016,     # A2 @ ~300dpi
+            margin=90, num_cols=6, gutter_x=30, row_gap=34,
+            title_font=180, subtitle_font=66, caption_font=42, footer_font=52,
+            img_scale=0.68, section_gap_extra=90,
+            section2_title_size=120, section2_sub_size=62,
+            banner_max_height_fraction=0.05,
+            parchment_brightness=PARCHMENT_BRIGHTNESS, parchment_mode=PARCHMENT_MODE,
+            featured_acharya_mode=FEATURED_ACHARYA_MODE
+        )
+        if final is None:
+            print("Render failed.")
+        else:
+            if choice["png"]:
+                final.save(OUT_A2, quality=95)
+                print("Saved:", OUT_A2)
+            if choice["pdf"]:
+                pdf_path = OUT_A2.replace(".png",".pdf")
+                final.save(pdf_path, "PDF", resolution=300.0, quality=95)
+                print("Saved:", pdf_path)
+
+    if choice["html"]:
+        generate_html_bundle(founders_data, parakala_data, founders_map, parakala_map)
 
 if __name__ == "__main__":
     main()
