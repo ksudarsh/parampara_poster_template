@@ -1,4 +1,13 @@
 {
-    "python-envs.defaultEnvManager": "ms-python.python:system",
-    "python-envs.pythonProjects": []
+  // Use your Conda env for THIS project
+  "python.defaultInterpreterPath": "C:\\Users\\krish\\miniconda3\\envs\\devenv1\\python.exe",
+
+  // Auto-activate this env in new terminals
+  "python.terminal.activateEnvironment": true,
+
+  // Load .env for run/debug if you use it
+  "python.envFile": "${workspaceFolder}\\.env",
+  "python-envs.defaultEnvManager": "ms-python.python:conda",
+  "python-envs.defaultPackageManager": "ms-python.python:conda",
+  "python-envs.pythonProjects": []
 }

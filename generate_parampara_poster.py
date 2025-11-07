@@ -10,12 +10,20 @@
 #
 # Deps: pip install pillow pandas openpyxl numpy
 
-import os, re, sys, glob, math
+import os, re, sys, glob, math, unicodedata
 from typing import Optional, List, Tuple, Dict
 
 import numpy as np
 import pandas as pd
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance, ImageChops
+
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 
 print(">>> Python:", sys.executable)
 
@@ -281,6 +289,16 @@ def maybe_draw_shadow(canvas: Image.Image, mask_for_shadow: Image.Image, dest_xy
     off = get_shadow_offset(IMAGE_SHADOW_STRENGTH)
     canvas.alpha_composite(sh, (dest_xy[0] + off[0], dest_xy[1] + off[1]))
 
+def normalize_ascii_lower(text: Optional[str]) -> str:
+    """Lowercase helper that strips diacritics for reliable header detection."""
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
+    normalized = unicodedata.normalize("NFKD", text)
+    stripped = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return stripped.lower()
+
 # ---------- Data ----------
 def read_xlsx():
     if not os.path.isfile(XLSX_PATH):
@@ -288,38 +306,74 @@ def read_xlsx():
     df_f = pd.read_excel(XLSX_PATH, sheet_name="Founders_Early_Acharyas", engine="openpyxl", header=None)
     df_p = pd.read_excel(XLSX_PATH, sheet_name="acharyan_captions",   engine="openpyxl", header=None)
 
-    # Founders: optional header skip
-    try: first_val_f = str(df_f.iloc[0,1]).lower()
-    except: first_val_f = ""
-    if any(k in first_val_f for k in ("acharya","name","caption","ācārya","āchārya")):
+    # Drop spacer columns that are entirely blank so indexes stay consistent
+    df_f = df_f.dropna(axis=1, how='all')
+    df_p = df_p.dropna(axis=1, how='all')
+
+    id_col = 0
+    caption_col = 1 if df_f.shape[1] > 1 else 0
+    group_col = 2 if df_f.shape[1] > 2 else None
+    enhance_col = 3 if df_f.shape[1] > 3 else None
+
+    # Founders: optional header skip (accent-insensitive)
+    first_val_f = ""
+    first_id_f = ""
+    try:
+        first_val_f = normalize_ascii_lower(df_f.iloc[0,caption_col])
+        first_id_f = normalize_ascii_lower(df_f.iloc[0,id_col])
+    except Exception:
+        pass
+    header_markers = ("acharya","acharyas","founder","founders","caption","name","lineage")
+    id_markers = ("sl no","slno","id","no","s.no")
+    if any(k in first_val_f for k in header_markers) or any(first_id_f.startswith(k) for k in id_markers):
         df_f = df_f.iloc[1:].reset_index(drop=True)
 
     founders = []
     for i,row in df_f.iterrows():
         if len(row)<2: continue
         try:
-            fid  = int(row.iloc[0])             # col1: ID (0..17)
-            cap  = str(row.iloc[1]).strip()     # col2: caption
-            grp  = row.iloc[2] if len(row)>2 else None  # col3: group id
-            grp  = int(grp) if pd.notna(grp) else f"unique_{i}"
+            id_raw = row.iloc[id_col] if id_col < len(row) else None
+            if pd.isna(id_raw):
+                raise ValueError("Missing founder ID")
+            id_val = str(id_raw).strip()
+            if id_val.upper().startswith('F'):
+                fid = int(id_val[1:])
+            else:
+                fid = int(float(id_val))
+
+            cap_raw = row.iloc[caption_col] if caption_col < len(row) else None
+            cap = "" if pd.isna(cap_raw) else str(cap_raw).strip()
+
+            grp_raw = row.iloc[group_col] if group_col is not None and group_col < len(row) else None
+            if pd.notna(grp_raw):
+                try:
+                    grp = int(float(str(grp_raw).strip()))
+                except Exception:
+                    grp = str(grp_raw).strip() or f"unique_{i}"
+            else:
+                grp = f"unique_{i}"
+
             is_m = False
-            if len(row)>3:
-                is_m = str(row.iloc[3]).strip().upper()=='M'
+            if enhance_col is not None and enhance_col < len(row):
+                enh_raw = row.iloc[enhance_col]
+                if pd.notna(enh_raw):
+                    is_m = str(enh_raw).strip().upper()=='M'
             founders.append({"id": fid, "caption": cap, "group_id": grp, "is_main": is_m})
-        except Exception:
+        except Exception as e:
+            print(f">>> WARNING: Skipping founder row {i} due to error: {e} (Row data: {row.to_list()})")
             continue
 
-    # Parakāla: optional header skip
-    try: first_val_p = str(df_p.iloc[0,0]).lower()
-    except: first_val_p = ""
-    if any(k in first_val_p for k in ("sl no","id","no","s.no")):
+    # Parak??la: optional header skip
+    try: first_val_p = normalize_ascii_lower(df_p.iloc[0,0])
+    except Exception: first_val_p = ""
+    if any(k in first_val_p for k in ("sl no","slno","id","no","s.no")):
         df_p = df_p.iloc[1:].reset_index(drop=True)
 
     parakala = []
     for _,row in df_p.iterrows():
         if len(row)<2: continue
         try:
-            pid = int(row.iloc[0])              # 1..36 (Excel)
+            pid = int(float(row.iloc[0]))              # 1..36 (Excel)
             cap = str(row.iloc[1]).strip()
             if cap:
                 parakala.append({"id": pid, "caption": cap})
