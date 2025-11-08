@@ -74,7 +74,8 @@ SIGNATURE_PATH    = os.path.join(ASSETS_DIR, "signature.png")
 OUT_A2            = os.path.join(HERE, "Sri_Parakala_Matham_Guru_Parampara_GRID_A2.png")
 HTML_EXPORT_DIR   = os.path.join(HERE, "html_parampara_chart")
 HTML_IMAGES_DIR   = os.path.join(HTML_EXPORT_DIR, "images")
-HTML_OUTPUT_PATH  = os.path.join(HTML_EXPORT_DIR, "index.html")
+HTML_FOUNDERS_PATH = os.path.join(HTML_EXPORT_DIR, "founders_and_early_acharyas.html")
+HTML_PARAKALA_PATH = os.path.join(HTML_EXPORT_DIR, "sri_parakala_acharyas.html")
 
 # ---------- Fonts ----------
 _FONT_USED = None
@@ -415,6 +416,15 @@ def index_images(images_dir: str):
     print(f">>> Indexed Parakāla images: {len(parakala_map)}")
     return founders_map, parakala_map
 
+def slugify_name(name: str) -> str:
+    """Converts a name into a URL-friendly slug for anchors."""
+    # Normalize accented characters to their base ASCII equivalent
+    s = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
+    s = s.lower()
+    s = re.sub(r'[^a-z0-9\s-]', '', s) # remove non-alphanumeric
+    s = re.sub(r'[\s-]+', '-', s).strip('-') # replace spaces/hyphens with a single hyphen
+    return s
+
 # ---------- HTML helpers ----------
 def ensure_dir(path: str):
     os.makedirs(path, exist_ok=True)
@@ -450,7 +460,10 @@ def prepare_html_image_map(founders: List[dict], parakala: List[dict],
         register(code, parakala_map.get(code, ""))
     return rel_map
 
-def build_html_document(founders: List[dict], parakala: List[dict], img_rel_map: Dict[str, Dict[str,str]]) -> str:
+def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Dict[str,str]]) -> str:
+    """
+    Builds a self-contained HTML snippet for the Founders and Early Acharyas lineage.
+    """
     def card_image_html(img_meta: Optional[Dict[str,str]], alt_text: str) -> str:
         if img_meta and img_meta.get("rel"):
             rel = img_meta["rel"]
@@ -459,53 +472,38 @@ def build_html_document(founders: List[dict], parakala: List[dict], img_rel_map:
                     f'alt="{html.escape(alt_text)}" loading="lazy" decoding="async" />')
         return '<div class="img-missing">Image coming soon</div>'
 
-    founder_cards = []
-    for item in founders:
-        fid = int(item["id"])
-        code = f"f{fid:02d}"
-        key = code.lower()
-        founder_cards.append({
-            "code": code,
-            "name": item["caption"],
-            "img": img_rel_map.get(key),
-            "link_target": f"#acharya-{code.lower()}",
-        })
+    hero_block = ""
+    timeline_founders = list(founders) # make a copy
+    if timeline_founders and timeline_founders[0]['id'] == 0:
+        hero = timeline_founders.pop(0) # F00 is hero, remove from timeline data
+        hero_key = f"f{hero['id']:02d}".lower()
+        hero_img_meta = img_rel_map.get(hero_key)
+        hero_img_html = card_image_html(hero_img_meta, hero['caption'])
+        anchor_href = f"#acharyan-{slugify_name(hero['caption'])}"
+        hero_block = f"""
+          <a href="{anchor_href}" class="hero-link">
+            <div class="hero-frame">{hero_img_html}</div>
+            <figcaption class="hero-caption">{html.escape(hero['caption'])}</figcaption>
+          </a>
+        """
 
-    parakala_cards = []
-    for item in parakala:
-        pid = int(item["id"])
-        code = f"p{pid:02d}"
-        img_key = f"{pid:02d}00"
-        parakala_cards.append({
-            "code": code,
-            "name": item["caption"],
-            "img": img_rel_map.get(img_key),
-            "link_target": f"#acharya-{code.lower()}",
-        })
+    lineage_groups = []
+    seen_gids = set()
+    grouped_by_gid = {}
+    for i, founder in enumerate(timeline_founders):
+        gid = founder['group_id']
+        if gid not in grouped_by_gid: grouped_by_gid[gid] = []
+        grouped_by_gid[gid].append(founder)
+    # Iterate through founders to maintain original order
+    for founder in timeline_founders:
+        gid = founder['group_id']
+        if gid in seen_gids:
+            continue
+        group = grouped_by_gid[gid]
+        lineage_groups.append(group)
+        seen_gids.add(gid)
 
-    def card_html(card: dict, extra_classes: str = "") -> str:
-        classes = ["acharya-card"]
-        if extra_classes:
-            classes.append(extra_classes)
-        class_attr = " ".join(classes)
-        href = card.get("link_target") or "#"
-        image_html = card_image_html(card.get("img"), card["name"])
-        caption = html.escape(card["name"])
-        return (
-            f'<a class="{class_attr}" href="{html.escape(href)}" id="card-{card["code"].lower()}">'
-            f'  <div class="image-frame">{image_html}</div>'
-            f'  <div class="caption">{caption}</div>'
-            f'</a>'
-        )
-
-    hero_html = ""
-    regular_founders = founder_cards
-    if founder_cards:
-        hero_card = founder_cards[0]
-        hero_html = f'<div class="hero-wrapper">{card_html(hero_card, "hero-card")}</div>'
-        regular_founders = founder_cards[1:]
-    founders_html = "".join(card_html(card) for card in regular_founders)
-    parakala_html = "".join(card_html(card, "parakala-card") for card in parakala_cards)
+    lineage_flow_html = build_lineage_flow_html(lineage_groups, img_rel_map, card_image_html)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -515,139 +513,101 @@ def build_html_document(founders: List[dict], parakala: List[dict], img_rel_map:
   <title>{html.escape(TITLE_TEXT)}</title>
   <style>
     :root {{
-      --bg-main: #f8f4ec;
-      --accent: #c59d2f;
-      --text-main: #2d1a0f;
-      --card-bg: #ffffff;
+      --bg: #f8f4ec;
+      --ink: #3a2411;
+      --gold: #b98d28;
+      --track: #d8e6fb;
     }}
-    * {{
-      box-sizing: border-box;
-    }}
+    * {{ box-sizing: border-box; }}
     body {{
       margin: 0;
       font-family: "Gentium Plus","Noto Serif","Georgia",serif;
-      background: var(--bg-main);
-      color: var(--text-main);
-      line-height: 1.55;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.5;
     }}
     main {{
-      max-width: 1280px;
+      max-width: 1180px;
       margin: 0 auto;
-      padding: 32px 20px 80px;
+      padding: 24px 16px 56px;
     }}
-    header {{
-      text-align: center;
-      margin-bottom: 40px;
-    }}
+    header {{ text-align:center; margin-bottom: 14px; }}
     header h1 {{
-      font-size: clamp(2.4rem, 4vw, 3.6rem);
-      margin: 0 0 0.5rem;
-      letter-spacing: 0.04em;
+      font-size: clamp(2.2rem, 4vw, 3.2rem);
+      margin: 0 0 .35rem;
+      letter-spacing: .03em;
     }}
-    header p {{
-      font-size: clamp(1.1rem, 2vw, 1.5rem);
-      margin: 0;
-      color: #6b4d1f;
-    }}
-    h2.section-title {{
-      font-size: clamp(1.6rem, 2.5vw, 2.3rem);
-      text-align: center;
-      margin: 50px 0 10px;
-      letter-spacing: 0.06em;
-    }}
-    p.section-subtitle {{
-      text-align: center;
-      margin-bottom: 32px;
-      color: #795c2c;
-    }}
-    .acharya-card {{
-      text-decoration: none;
-      color: inherit;
-      background: transparent;
-      border-radius: 24px;
-      border: 1px solid rgba(0,0,0,0.08);
-      padding: 1.35rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.85rem;
-      align-items: center;
-      text-align: center;
-      backdrop-filter: blur(0.5px);
-      transition: transform 0.18s ease, box-shadow 0.18s ease;
-      min-height: 100%;
-      max-width: 260px;
-      flex: 1 1 220px;
-    }}
-    .acharya-card:hover {{
-      transform: translateY(-4px);
-      box-shadow: 0 18px 36px rgba(0,0,0,0.12);
-    }}
-    .image-frame {{
-      width: min(260px, 70vw);
-      aspect-ratio: 1 / 1;
+    header p {{ margin: 0; color: #6b4d1f; font-size: clamp(1rem, 2vw, 1.25rem); }}
+
+    /* Hero */
+    a.hero-link {{ text-decoration: none; color: inherit; }}
+    a.hero-link {{ display:flex; flex-direction:column; align-items:center; margin: 18px 0 24px; }}
+    .hero-frame {{
+      width: min(280px, 70vw);
+      aspect-ratio: 1/1;
       border-radius: 999px;
       overflow: hidden;
-      border: 5px solid var(--accent);
-      background: transparent;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      border: 6px solid var(--gold);
+      background: #fff9f0;
+      box-shadow: 0 18px 36px rgba(0,0,0,.12);
     }}
-    .hero-wrapper {{
-      display: flex;
-      justify-content: center;
-      margin-bottom: 30px;
-    }}
-    .hero-card {{
-      max-width: min(360px, 85vw);
-      flex: 0 0 auto;
-    }}
-    .hero-card .image-frame {{
-      width: min(360px, 85vw);
-      border-width: 6px;
-    }}
-    .image-frame img {{
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }}
-    .img-missing {{
-      width: 100%;
-      height: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 1rem;
-      color: #9a7736;
-      font-size: 0.95rem;
+    .hero-frame img {{ width:100%; height:100%; object-fit:cover; display:block; }}
+    .hero-caption {{
+      margin-top: 12px;
+      font-size: 1.2rem;
+      font-weight: bold;
       text-align: center;
     }}
-    .caption {{
-      font-size: 1.15rem;
-      font-weight: 600;
-      letter-spacing: 0.02em;
-    }}
-    .acharya-grid {{
+
+    /* Lineage Flow */
+    .lineage-flow {{ margin-top: 24px; }}
+    .lineage-columns {{
       display: flex;
-      flex-wrap: wrap;
-      gap: 1.25rem;
       justify-content: center;
+      gap: 48px;
     }}
-    .parakala-grid {{
-      margin-top: 30px;
+    .lineage-column {{ flex: 1; max-width: 500px; }}
+
+    .lineage-row {{ display: flex; justify-content: center; align-items: flex-start; margin-bottom: 32px; position: relative; }}
+    .lineage-row:not(:last-child)::after {{
+        content: '↓'; position: absolute; left: 50%; bottom: -28px;
+        transform: translateX(-50%); font-size: 24px; color: #c7b28a;
     }}
-    .parakala-card .image-frame {{
-      width: min(200px, 60vw);
-      border-width: 4px;
+    .lineage-group {{ display: flex; justify-content: center; gap: 24px; flex-wrap: wrap; position: relative; }}
+    
+    /* Line connecting contemporaries */
+    .lineage-group[data-contemporaries="true"]::before {{
+        content: ''; position: absolute; top: 60px; /* vertical center of images */
+        left: 60px; right: 60px; height: 3px; background-color: #d1c3a7;
+        z-index: -1;
     }}
-    @media (max-width: 640px) {{
-      .acharya-card {{
-          padding: 1.25rem;
+
+    .lineage-item a {{ text-decoration: none; color: inherit; }}
+    .lineage-item {{ margin: 0; text-align: center; width: 160px; }}
+    .lineage-item-frame {{
+        width: 120px; aspect-ratio: 1/1; border-radius: 999px; overflow: hidden;
+        border: 5px solid var(--gold); margin: 0 auto 8px; background: #fff9f0;
+        box-shadow: 0 8px 16px rgba(0,0,0,.1);
+    }}
+    .lineage-item-frame img {{ width: 100%; height: 100%; object-fit: cover; display: block; }}
+    .lineage-item figcaption {{ font-size: 0.95rem; line-height: 1.25; }}
+
+    .img-missing {{
+      display:flex; align-items:center; justify-content:center;
+      width:100%; height:100%; font-size:.9rem; color:#9a7736; padding:.5rem; text-align:center;
+    }}
+
+    @media (max-width: 600px) {{
+      .lineage-columns {{ flex-direction: column; gap: 0; }}
+      .lineage-column:not(:empty) + .lineage-column:not(:empty)::before {{
+        content: '↓'; display: block; text-align: center;
+        font-size: 24px; color: #c7b28a; margin: -16px 0 16px;
       }}
-      .image-frame {{
-          width: min(220px, 80vw);
-      }}
+      .lineage-group[data-contemporaries="true"]::before {{ display: none; }}
+      .lineage-item {{ width: 130px; }}
+      .lineage-item-frame {{ width: 100px; }}
+      .lineage-item figcaption {{ font-size: 0.85rem; }}
+      .parakala-grid {{ grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }}
     }}
   </style>
 </head>
@@ -657,70 +617,185 @@ def build_html_document(founders: List[dict], parakala: List[dict], img_rel_map:
       <h1>{html.escape(TITLE_TEXT)}</h1>
       <p>{html.escape(SUBTITLE_TEXT)}</p>
     </header>
-    <section>
-      <h2 class="section-title">Founders & Early Āchāryas</h2>
-      <p class="section-subtitle">Including contemporaneous disciples within each lineage cluster</p>
-      {hero_html}
-      <div class="acharya-grid founders-grid">
-        {founders_html}
-      </div>
-    </section>
-    <section>
-      <h2 class="section-title">{html.escape(SECTION2_TITLE)}</h2>
-      <p class="section-subtitle">{html.escape(SECTION2_SUB)}</p>
-      <div class="acharya-grid parakala-grid">
-        {parakala_html}
-      </div>
-    </section>
+
+    {hero_block}
+
+    <!-- Lineage Flow -->
+    {lineage_flow_html}
+
   </main>
-  <script>
-    (function() {{
-      // Update this path to point all images to a different root (e.g., a CDN or media library URL).
-      var IMG_ROOT = "./images/";
-      if (!IMG_ROOT) {{ return; }}
-      var normalized = IMG_ROOT.endsWith("/") ? IMG_ROOT : IMG_ROOT + "/";
-      document.querySelectorAll("img[data-img-file]").forEach(function(img) {{
-        var file = img.getAttribute("data-img-file");
-        if (!file) {{ return; }}
-        img.src = normalized + file;
-      }});
-    }})();
-  </script>
 </body>
 </html>
 """
 
+def build_parakala_html_document(parakala: List[dict], img_rel_map: Dict[str, Dict[str,str]]) -> str:
+    """
+    Builds a self-contained HTML snippet for the Sri Parakala Acharyas grid.
+    """
+    def card_image_html(img_meta: Optional[Dict[str,str]], alt_text: str) -> str:
+        if img_meta and img_meta.get("rel"):
+            rel = img_meta["rel"]
+            file_name = img_meta.get("file", "")
+            return (f'<img src="{html.escape(rel)}" data-img-file="{html.escape(file_name)}" '
+                    f'alt="{html.escape(alt_text)}" loading="lazy" decoding="async" />')
+        return '<div class="img-missing">Image coming soon</div>'
+
+    parakala_grid_html = ""
+    if parakala:
+        parakala_items_html = []
+        for item in parakala:
+            pid = int(item["id"])
+            img_key = f"{pid:02d}00"
+            img_meta = img_rel_map.get(img_key)
+            img_html = card_image_html(img_meta, item['caption'])
+            anchor_href = f"#acharyan-{pid:02d}"
+            parakala_items_html.append(f"""
+              <a href="{anchor_href}" class="grid-item-link">
+                <figure class="grid-item">
+                  <div class="grid-item-frame">{img_html}</div>
+                  <figcaption>{html.escape(item['caption'])}</figcaption>
+                </figure>
+              </a>
+            """)
+        parakala_grid_html = f"""
+          <div class="parakala-grid">
+            {''.join(parakala_items_html)}
+          </div>
+        """
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{html.escape(SECTION2_TITLE)}</title>
+  <style>
+    :root {{
+      --bg: #f8f4ec;
+      --ink: #3a2411;
+      --gold: #b98d28;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: "Gentium Plus","Noto Serif","Georgia",serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.5;
+    }}
+    main {{
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 24px 16px 56px;
+    }}
+    .section-header {{ text-align:center; margin: 0 0 24px; }}
+    .section-header h2 {{ font-size: clamp(1.8rem, 3vw, 2.5rem); margin:0 0 4px; }}
+    .section-header p {{ margin:0; color: #6b4d1f; font-size: clamp(1rem, 2vw, 1.15rem); }}
+    .parakala-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 24px 16px;
+      max-width: 1100px;
+      margin: 0 auto;
+    }}
+    a.grid-item-link {{ text-decoration: none; color: inherit; }}
+    .grid-item {{ margin: 0; text-align: center; }}
+    .grid-item-frame {{ width: 100%; aspect-ratio: 1/1; border-radius: 999px; overflow: hidden; border: 4px solid var(--gold); margin: 0 auto 8px; background: #fff9f0; }}
+    .grid-item-frame img {{ width: 100%; height: 100%; object-fit: cover; display: block; }}
+    .grid-item figcaption {{ font-size: 0.9rem; line-height: 1.2; }}
+    .img-missing {{
+      display:flex; align-items:center; justify-content:center;
+      width:100%; height:100%; font-size:.9rem; color:#9a7736; padding:.5rem; text-align:center;
+    }}
+     @media (max-width: 600px) {{
+      .parakala-grid {{ grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }}
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <header class="section-header">
+      <h2>{html.escape(SECTION2_TITLE)}</h2>
+      <p>{html.escape(SECTION2_SUB)}</p>
+    </header>
+    {parakala_grid_html}
+  </main>
+</body>
+</html>
+"""
+
+def build_lineage_flow_html(lineage_groups: List[List[dict]], img_rel_map: Dict[str, Dict[str,str]], card_image_html_fn) -> str:
+    if not lineage_groups:
+        return ""
+
+    def generate_rows_for_groups(groups: List[List[dict]]) -> str:
+        rows_html = []
+        for group in groups:
+            group_items_html = []
+            is_contemporary_group = len(group) > 1
+            for item in group:
+                fid = int(item["id"])
+                key = f"f{fid:02d}".lower()
+                anchor_href = f"#acharyan-{slugify_name(item['caption'])}"
+                img_meta = img_rel_map.get(key)
+                img_html = card_image_html_fn(img_meta, item['caption'])
+                group_items_html.append(f"""
+                  <a href="{anchor_href}">
+                    <figure class="lineage-item">
+                      <div class="lineage-item-frame">{img_html}</div>
+                      <figcaption>{html.escape(item['caption'])}</figcaption>
+                    </figure>
+                  </a>
+                """)
+            
+            contemporaries_attr = 'data-contemporaries="true"' if is_contemporary_group else ''
+            rows_html.append(f"""
+              <div class="lineage-row">
+                <div class="lineage-group" {contemporaries_attr}>
+                  {''.join(group_items_html)}
+                </div>
+              </div>
+            """)
+        return "".join(rows_html)
+
+    midpoint = math.ceil(len(lineage_groups) / 2)
+    col1_html = generate_rows_for_groups(lineage_groups[:midpoint])
+    col2_html = generate_rows_for_groups(lineage_groups[midpoint:])
+
+    return f"""
+      <section class="lineage-flow">
+        <header class="section-header" style="margin-bottom: 32px;">
+          <h2>Founders & Early Acharyas</h2>
+        </header>
+        <div class="lineage-columns">
+          <div class="lineage-column">
+            {col1_html}
+          </div>
+          <div class="lineage-column">
+            {col2_html}
+          </div>
+        </div>
+      </section>
+    """
+
 def generate_html_bundle(founders: List[dict], parakala: List[dict],
                          founders_map: Dict[str,str], parakala_map: Dict[str,str]):
     rel_map = prepare_html_image_map(founders, parakala, founders_map, parakala_map)
-    html_doc = build_html_document(founders, parakala, rel_map)
     ensure_dir(HTML_EXPORT_DIR)
-    with open(HTML_OUTPUT_PATH, "w", encoding="utf-8") as fh:
-        fh.write(html_doc)
-    print(f"Saved HTML poster to: {HTML_OUTPUT_PATH}")
+
+    # Generate and save the Founders HTML file
+    founders_html_doc = build_founders_html_document(founders, rel_map)
+    with open(HTML_FOUNDERS_PATH, "w", encoding="utf-8") as fh:
+        fh.write(founders_html_doc)
+    print(f"Saved Founders HTML to: {HTML_FOUNDERS_PATH}")
+
+    # Generate and save the Parakala Acharyas HTML file
+    parakala_html_doc = build_parakala_html_document(parakala, rel_map)
+    with open(HTML_PARAKALA_PATH, "w", encoding="utf-8") as fh:
+        fh.write(parakala_html_doc)
+    print(f"Saved Parakala Acharyas HTML to: {HTML_PARAKALA_PATH}")
+
     print(f"Copied {len(rel_map)} images into: {HTML_IMAGES_DIR}")
-
-def prompt_output_choice() -> Dict[str,bool]:
-    default = {"png": True, "pdf": True, "html": False}
-    try:
-        resp = input("Select output format (PDF/PNG/HTML/ALL) [PDF+PNG]: ").strip().lower()
-    except EOFError:
-        resp = ""
-    if not resp:
-        return default
-    tokens = [tok for tok in re.split(r"[\\s,/+]+", resp) if tok]
-    if not tokens:
-        return default
-    if any(tok == "all" for tok in tokens):
-        return {"png": True, "pdf": True, "html": True}
-    selection = {"png": False, "pdf": False, "html": False}
-    for tok in tokens:
-        if tok in selection:
-            selection[tok] = True
-    if not any(selection.values()):
-        return default
-    return selection
-
 
 # ---------- Separator ----------
 def draw_separator_block(canvas, y, title_main, title_sub, main_size, sub_size, line_color=(212,175,55), margin=80):
@@ -911,7 +986,7 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
         used_h = draw_group_row(row_groups, y)
         y += used_h + row_gap
 
-    # Parakāla grid
+    # Parakāla grid (for PDF/PNG only)
     y += section_gap_extra
     y = draw_separator_block(canvas, y, SECTION2_TITLE, SECTION2_SUB, main_size=section2_title_size, sub_size=section2_sub_size)
     y += section_gap_extra
@@ -961,7 +1036,7 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
         print_font_choice_once()
         return ty - y0
 
-    # draw Parakāla rows
+    # draw Parakāla rows (for PDF/PNG only)
     idx=0
     while idx < len(parakala_data):
         row_items = []
@@ -998,19 +1073,14 @@ def draw_footer_and_signature(canvas: Image.Image, page_w: int, page_h: int, mar
     # signature to the right of footer text on the same baseline
     if SHOW_SIGNATURE and os.path.isfile(SIGNATURE_PATH):
         try:
-            # Load and scale signature to fit footer height
             sig = Image.open(SIGNATURE_PATH).convert("RGBA")
-            max_sig_h = footer_h * 1.2 # Allow it to be slightly taller than text
+            max_sig_h = footer_h * 1.2
             if sig.height > max_sig_h:
                 r = max_sig_h / sig.height
                 sig = sig.resize((max(1,int(sig.width*r)), int(max_sig_h)), Image.LANCZOS)
-
-            # Calculate position based on SIGNATURE_POSITION
             drawable_width = page_w - 2*margin - sig.width
             pos_frac = max(0.0, min(1.0, SIGNATURE_POSITION))
             sig_x = margin + int(drawable_width * pos_frac)
-            
-            # Align baseline of signature with baseline of footer text
             sig_y = footer_y + footer_h - sig.height
             canvas.alpha_composite(sig, (sig_x, sig_y))
         except Exception as e:
@@ -1034,10 +1104,8 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
     content_limit = footer_top - safety_gap  # content must end above this
 
     # Binary search for a scale that fits content under content_limit
-    lo, hi = 0.50, 0.90  # allowed bounds for img_scale
+    lo, hi = 0.50, 0.90
     best_scale = None
-
-    # Start with requested img_scale if inside bounds
     start_scale = min(max(img_scale, lo), hi)
 
     def measure(scale: float) -> Tuple[Image.Image, int]:
@@ -1048,35 +1116,29 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
                               founders_data=founders_data, parakala_data=parakala_data,
                               founders_map=f_map, parakala_map=p_map)
 
-    # First measure
     canvas, end_y = measure(start_scale)
     if end_y <= content_limit:
         best_scale = start_scale
     else:
-        # Narrow down with bsearch
         for _ in range(16):
             mid = (lo + hi) / 2.0
             canvas, end_y = measure(mid)
             if end_y <= content_limit:
                 best_scale = mid
-                lo = mid  # we can try bigger
+                lo = mid
             else:
-                hi = mid  # too big, go smaller
+                hi = mid
         if best_scale is None:
-            # fallback to the smallest we tried
             best_scale = hi
             canvas, end_y = measure(best_scale)
 
-    # If we measured with a scale different from start_scale, re-render at best_scale to be sure
     if abs(best_scale - start_scale) > 1e-6:
         canvas, end_y = measure(best_scale)
 
-    # As a final clamp, if still a pixel or two over, draw a thin separator
     if end_y > content_limit:
         sep = Image.new("RGBA", (page_w - 2*margin, 2), (0,0,0,60))
         canvas.alpha_composite(sep, (margin, max(margin, content_limit - 6)))
 
-    # Footer & signature (bottom anchored)
     draw_footer_and_signature(canvas, page_w, page_h, margin, footer_font_size=footer_font)
     return canvas.convert("RGB")
 
@@ -1084,10 +1146,20 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
 def main():
     founders_data, parakala_data = read_xlsx()
     founders_map, parakala_map = index_images(IMAGES_DIR)
-    choice = prompt_output_choice()
-    if not any(choice.values()):
-        print("No output format selected; exiting.")
-        return
+    choice = {"png": True, "pdf": True, "html": False}
+    try:
+        resp = input("Select output format (PDF/PNG/HTML/ALL) [PDF+PNG]: ").strip().lower()
+    except EOFError:
+        resp = ""
+    if resp:
+        tokens = [tok for tok in re.split(r"[\\s,/+]+", resp) if tok]
+        if any(tok == "all" for tok in tokens):
+            choice = {"png": True, "pdf": True, "html": True}
+        else:
+            sel = {"png": False, "pdf": False, "html": False}
+            for tok in tokens:
+                if tok in sel: sel[tok] = True
+            if any(sel.values()): choice = sel
 
     final = None
     if choice["png"] or choice["pdf"]:
