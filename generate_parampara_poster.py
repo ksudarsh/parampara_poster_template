@@ -76,6 +76,7 @@ HTML_EXPORT_DIR   = os.path.join(HERE, "html_parampara_chart")
 HTML_IMAGES_DIR   = os.path.join(HTML_EXPORT_DIR, "images")
 HTML_FOUNDERS_PATH = os.path.join(HTML_EXPORT_DIR, "founders_and_early_acharyas.html")
 HTML_PARAKALA_PATH = os.path.join(HTML_EXPORT_DIR, "sri_parakala_acharyas.html")
+HTML_IMAGE_BASE_URL = "images/"
 
 # ---------- Fonts ----------
 _FONT_USED = None
@@ -466,9 +467,8 @@ def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Di
     """
     def card_image_html(img_meta: Optional[Dict[str,str]], alt_text: str) -> str:
         if img_meta and img_meta.get("rel"):
-            rel = img_meta["rel"]
-            file_name = img_meta.get("file", "")
-            return (f'<img src="{html.escape(rel)}" data-img-file="{html.escape(file_name)}" '
+            local_rel_path = img_meta["rel"]
+            return (f'<img src="{html.escape(local_rel_path)}" data-img-file="{html.escape(img_meta["file"])}" '
                     f'alt="{html.escape(alt_text)}" loading="lazy" decoding="async" />')
         return '<div class="img-missing">Image coming soon</div>'
 
@@ -479,7 +479,7 @@ def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Di
         hero_key = f"f{hero['id']:02d}".lower()
         hero_img_meta = img_rel_map.get(hero_key)
         hero_img_html = card_image_html(hero_img_meta, hero['caption'])
-        anchor_href = f"#acharyan-{slugify_name(hero['caption'])}"
+        anchor_href = f"#acharyan-{int(hero['id'])}"
         hero_block = f"""
           <a href="{anchor_href}" class="hero-link">
             <div class="hero-frame">{hero_img_html}</div>
@@ -548,7 +548,7 @@ def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Di
       border-radius: 999px;
       overflow: hidden;
       border: 6px solid var(--gold);
-      background: #fff9f0;
+      background: transparent;
       box-shadow: 0 18px 36px rgba(0,0,0,.12);
     }}
     .hero-frame img {{ width:100%; height:100%; object-fit:cover; display:block; }}
@@ -560,55 +560,65 @@ def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Di
     }}
 
     /* Lineage Flow */
-    .lineage-flow {{ margin-top: 24px; }}
-    .lineage-columns {{
+    .lineage-flow {{ margin-top: 24px; position: relative; }}
+    .lineage-row {{
+      position: relative;
+      padding: 28px 0 60px;
+    }}
+    .lineage-row .row-track {{
+      position: relative;
       display: flex;
-      justify-content: center;
-      gap: 48px;
+      justify-content: space-between;
+      align-items: center;
+      gap: clamp(18px, 3vw, 60px);
+      padding: 0 8%;
     }}
-    .lineage-column {{ flex: 1; max-width: 500px; }}
+    .lineage-row.dir-rtl .row-track {{
+      flex-direction: row-reverse;
+    }}
+    .lineage-step {{
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex: 1 1 0;
+      min-width: 140px;
+    }}
+    .timeline-card {{
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      transition: transform 0.25s ease;
+    }}
+    .timeline-card .image-frame {{
+      width: clamp(110px, 9vw, 140px);
+      aspect-ratio: 1 / 1;
+      border-radius: 999px;
+      border: 5px solid var(--gold);
+      overflow: hidden;
+      background: #fff;
+      box-shadow: 0 12px 24px rgba(0,0,0,0.16);
+      transition: transform 0.25s ease, box-shadow 0.25s ease;
+    }}
+    .timeline-card img {{ width: 100%; height: 100%; object-fit: cover; display: block; }}
+    .timeline-card figcaption {{ text-align: center; font-size: 0.95rem; line-height: 1.3; }}
+    .timeline-card:hover .image-frame {{
+      transform: scale(1.05);
+      box-shadow: 0 18px 30px rgba(0,0,0,0.22);
+    }}
+    .timeline-card:focus-visible .image-frame {{
+      outline: 3px solid rgba(185,141,40,0.65);
+      outline-offset: 4px;
+    }}
 
-    .lineage-row {{ display: flex; justify-content: center; align-items: flex-start; margin-bottom: 32px; position: relative; }}
-    .lineage-row:not(:last-child)::after {{
-        content: '↓'; position: absolute; left: 50%; bottom: -28px;
-        transform: translateX(-50%); font-size: 24px; color: #c7b28a;
-    }}
-    .lineage-group {{ display: flex; justify-content: center; gap: 24px; flex-wrap: wrap; position: relative; }}
-    
-    /* Line connecting contemporaries */
-    .lineage-group[data-contemporaries="true"]::before {{
-        content: ''; position: absolute; top: 60px; /* vertical center of images */
-        left: 60px; right: 60px; height: 3px; background-color: #d1c3a7;
-        z-index: -1;
-    }}
-
-    .lineage-item a {{ text-decoration: none; color: inherit; }}
-    .lineage-item {{ margin: 0; text-align: center; width: 160px; }}
-    .lineage-item-frame {{
-        width: 120px; aspect-ratio: 1/1; border-radius: 999px; overflow: hidden;
-        border: 5px solid var(--gold); margin: 0 auto 8px; background: #fff9f0;
-        box-shadow: 0 8px 16px rgba(0,0,0,.1);
-    }}
-    .lineage-item-frame img {{ width: 100%; height: 100%; object-fit: cover; display: block; }}
-    .lineage-item figcaption {{ font-size: 0.95rem; line-height: 1.25; }}
 
     .img-missing {{
       display:flex; align-items:center; justify-content:center;
       width:100%; height:100%; font-size:.9rem; color:#9a7736; padding:.5rem; text-align:center;
     }}
 
-    @media (max-width: 600px) {{
-      .lineage-columns {{ flex-direction: column; gap: 0; }}
-      .lineage-column:not(:empty) + .lineage-column:not(:empty)::before {{
-        content: '↓'; display: block; text-align: center;
-        font-size: 24px; color: #c7b28a; margin: -16px 0 16px;
-      }}
-      .lineage-group[data-contemporaries="true"]::before {{ display: none; }}
-      .lineage-item {{ width: 130px; }}
-      .lineage-item-frame {{ width: 100px; }}
-      .lineage-item figcaption {{ font-size: 0.85rem; }}
-      .parakala-grid {{ grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }}
-    }}
   </style>
 </head>
 <body>
@@ -624,6 +634,19 @@ def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Di
     {lineage_flow_html}
 
   </main>
+  <script>
+    (function() {{
+      var root = window.PARAKALA_IMG_ROOT || "{HTML_IMAGE_BASE_URL}";
+      if (!root) return;
+      if (root.slice(-1) !== "/") root += "/";
+      document.querySelectorAll("img[data-img-file]").forEach(function(img) {{
+        var file = img.getAttribute("data-img-file");
+        if (file) {{
+          img.src = root + file;
+        }}
+      }});
+    }})();
+  </script>
 </body>
 </html>
 """
@@ -634,9 +657,8 @@ def build_parakala_html_document(parakala: List[dict], img_rel_map: Dict[str, Di
     """
     def card_image_html(img_meta: Optional[Dict[str,str]], alt_text: str) -> str:
         if img_meta and img_meta.get("rel"):
-            rel = img_meta["rel"]
-            file_name = img_meta.get("file", "")
-            return (f'<img src="{html.escape(rel)}" data-img-file="{html.escape(file_name)}" '
+            local_rel_path = img_meta["rel"]
+            return (f'<img src="{html.escape(local_rel_path)}" data-img-file="{html.escape(img_meta["file"])}" '
                     f'alt="{html.escape(alt_text)}" loading="lazy" decoding="async" />')
         return '<div class="img-missing">Image coming soon</div>'
 
@@ -648,7 +670,7 @@ def build_parakala_html_document(parakala: List[dict], img_rel_map: Dict[str, Di
             img_key = f"{pid:02d}00"
             img_meta = img_rel_map.get(img_key)
             img_html = card_image_html(img_meta, item['caption'])
-            anchor_href = f"#acharyan-{pid:02d}"
+            anchor_href = f"#acharyan-{pid}"
             parakala_items_html.append(f"""
               <a href="{anchor_href}" class="grid-item-link">
                 <figure class="grid-item">
@@ -698,10 +720,28 @@ def build_parakala_html_document(parakala: List[dict], img_rel_map: Dict[str, Di
       max-width: 1100px;
       margin: 0 auto;
     }}
-    a.grid-item-link {{ text-decoration: none; color: inherit; }}
-    .grid-item {{ margin: 0; text-align: center; }}
-    .grid-item-frame {{ width: 100%; aspect-ratio: 1/1; border-radius: 999px; overflow: hidden; border: 4px solid var(--gold); margin: 0 auto 8px; background: #fff9f0; }}
+    a.grid-item-link {{ text-decoration: none; color: inherit; display: block; }}
+    .grid-item {{ margin: 0; text-align: center; display: block; }}
+    .grid-item-frame {{
+      width: 100%;
+      aspect-ratio: 1/1;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 4px solid var(--gold);
+      margin: 0 auto 8px;
+      background: transparent;
+      box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+      transition: transform 0.25s ease, box-shadow 0.25s ease;
+    }}
     .grid-item-frame img {{ width: 100%; height: 100%; object-fit: cover; display: block; }}
+    .grid-item-link:hover .grid-item-frame {{
+      transform: scale(1.05);
+      box-shadow: 0 14px 28px rgba(0,0,0,0.18);
+    }}
+    .grid-item-link:focus-visible .grid-item-frame {{
+      outline: 3px solid rgba(185,141,40,0.65);
+      outline-offset: 4px;
+    }}
     .grid-item figcaption {{ font-size: 0.9rem; line-height: 1.2; }}
     .img-missing {{
       display:flex; align-items:center; justify-content:center;
@@ -720,6 +760,19 @@ def build_parakala_html_document(parakala: List[dict], img_rel_map: Dict[str, Di
     </header>
     {parakala_grid_html}
   </main>
+  <script>
+    (function() {{
+      var root = window.PARAKALA_IMG_ROOT || "{HTML_IMAGE_BASE_URL}";
+      if (!root) return;
+      if (root.slice(-1) !== "/") root += "/";
+      document.querySelectorAll("img[data-img-file]").forEach(function(img) {{
+        var file = img.getAttribute("data-img-file");
+        if (file) {{
+          img.src = root + file;
+        }}
+      }});
+    }})();
+  </script>
 </body>
 </html>
 """
@@ -728,53 +781,63 @@ def build_lineage_flow_html(lineage_groups: List[List[dict]], img_rel_map: Dict[
     if not lineage_groups:
         return ""
 
-    def generate_rows_for_groups(groups: List[List[dict]]) -> str:
-        rows_html = []
-        for group in groups:
-            group_items_html = []
-            is_contemporary_group = len(group) > 1
-            for item in group:
-                fid = int(item["id"])
-                key = f"f{fid:02d}".lower()
-                anchor_href = f"#acharyan-{slugify_name(item['caption'])}"
-                img_meta = img_rel_map.get(key)
-                img_html = card_image_html_fn(img_meta, item['caption'])
-                group_items_html.append(f"""
-                  <a href="{anchor_href}">
-                    <figure class="lineage-item">
-                      <div class="lineage-item-frame">{img_html}</div>
-                      <figcaption>{html.escape(item['caption'])}</figcaption>
-                    </figure>
-                  </a>
-                """)
-            
-            contemporaries_attr = 'data-contemporaries="true"' if is_contemporary_group else ''
-            rows_html.append(f"""
-              <div class="lineage-row">
-                <div class="lineage-group" {contemporaries_attr}>
-                  {''.join(group_items_html)}
-                </div>
-              </div>
-            """)
-        return "".join(rows_html)
+    all_acharyas = {item['id']: item for group in lineage_groups for item in group}
 
-    midpoint = math.ceil(len(lineage_groups) / 2)
-    col1_html = generate_rows_for_groups(lineage_groups[:midpoint])
-    col2_html = generate_rows_for_groups(lineage_groups[midpoint:])
+    row_configs = [
+        {"ids": [1, 2, 3],    "dir": "ltr"},
+        {"ids": [6, 5, 4],    "dir": "rtl"},
+        {"ids": [7, 8, 9],    "dir": "ltr"},
+        {"ids": [14, 12, 10], "dir": "rtl", "tag": "fork-top"},
+        {"ids": [15, 13, 11], "dir": "rtl", "tag": "fork-bottom"},
+        {"ids": [16, 17, 18], "dir": "ltr"}
+    ]
+
+    rows_html: List[str] = []
+    for idx, cfg in enumerate(row_configs):
+        row_index = idx + 1
+        row_classes = ["lineage-row", f"row-{row_index}", f"dir-{cfg['dir']}"]
+        if row_index == len(row_configs):
+            row_classes.append("row-last")
+        tag = cfg.get("tag")
+        if tag:
+            row_classes.append(tag)
+
+        steps_html: List[str] = []
+        for acharya_id in cfg["ids"]:
+            acharya = all_acharyas.get(acharya_id)
+            if not acharya:
+                continue
+            key = f"f{int(acharya['id']):02d}".lower()
+            anchor_href = f"#acharyan-{int(acharya['id'])}"
+            img_meta = img_rel_map.get(key)
+            img_html = card_image_html_fn(img_meta, acharya['caption'])
+            steps_html.append(
+                f"""
+                <div class="lineage-step">
+                  <a href="{anchor_href}" class="timeline-card">
+                    <div class="image-frame">{img_html}</div>
+                    <figcaption>{html.escape(acharya['caption'])}</figcaption>
+                  </a>
+                </div>
+                """
+            )
+
+        rows_html.append(
+            f"""
+            <div class="{' '.join(row_classes)}">
+              <div class="row-track">
+                {''.join(steps_html)}
+              </div>
+            </div>
+            """
+        )
 
     return f"""
       <section class="lineage-flow">
-        <header class="section-header" style="margin-bottom: 32px;">
-          <h2>Founders & Early Acharyas</h2>
+        <header class="section-header" style="margin-bottom: 28px;">
+          <h2>Founders &amp; Early Āchāryas</h2>
         </header>
-        <div class="lineage-columns">
-          <div class="lineage-column">
-            {col1_html}
-          </div>
-          <div class="lineage-column">
-            {col2_html}
-          </div>
-        </div>
+        {''.join(rows_html)}
       </section>
     """
 
