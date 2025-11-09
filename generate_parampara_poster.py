@@ -12,6 +12,7 @@
 
 import os, re, sys, glob, math, unicodedata, shutil, html
 from typing import Optional, List, Tuple, Dict
+from string import Template
 
 import numpy as np
 import pandas as pd
@@ -31,7 +32,7 @@ print(">>> Python:", sys.executable)
 TITLE_TEXT      = "Sri Parakala Matham Guru Parampara"
 SUBTITLE_TEXT   = "Established by Sri Vedanta Desika in 1359 CE"
 FOOTER_TEXT     = "Sri Parakala Swamy Mutt – The Eternal Lineage of Sri Vedanta Desika"
-SECTION2_TITLE  = "Sri Parakāla Acharyas"
+SECTION2_TITLE  = "Sri Parak\u0101la \u0100ch\u0101ryas"
 SECTION2_SUB    = "Lineage of Brahmatantra Svatantra Swamis"
 
 # ---------- Style / Flags ----------
@@ -90,6 +91,10 @@ HTML_IMAGES_DIR   = os.path.join(HTML_EXPORT_DIR, "images")
 HTML_FOUNDERS_PATH = os.path.join(HTML_EXPORT_DIR, "founders_and_early_acharyas.html")
 HTML_PARAKALA_PATH = os.path.join(HTML_EXPORT_DIR, "sri_parakala_acharyas.html")
 HTML_IMAGE_BASE_URL = "images/"
+HTML_REMOTE_IMAGE_ROOT = "https://www.parakalamatham.org/wp-content/uploads/2025/11/"
+HTML_IMAGE_FILENAME_OVERRIDES = {
+    "f00": "F00-Sri-Lakshmi-Hayagriva.png",
+}
 
 # ---------- Fonts ----------
 _FONT_USED = None
@@ -432,12 +437,12 @@ def index_images(images_dir: str):
 
 def slugify_name(name: str) -> str:
     """Converts a name into a URL-friendly slug for anchors."""
-    # Normalize accented characters to their base ASCII equivalent
-    s = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
-    s = s.lower()
-    s = re.sub(r'[^a-z0-9\s-]', '', s) # remove non-alphanumeric
-    s = re.sub(r'[\s-]+', '-', s).strip('-') # replace spaces/hyphens with a single hyphen
-    return s
+    if name.isdigit():
+        return name
+    s = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii').lower()
+    s = re.sub(r'[^a-z0-9\s-]', '', s)
+    s = re.sub(r'[\s-]+', '-', s).strip('-')
+    return s or "acharya"
 
 def filename_slug(title: str, fallback: str = "Acharya") -> str:
     """Returns a Title-Case slug suitable for filenames (e.g., Early-Acharya)."""
@@ -464,18 +469,13 @@ def prepare_html_image_map(founders: List[dict], parakala: List[dict],
     def register(code: str, src: Optional[str], caption: str = "", label: Optional[str] = None):
         if not src or not os.path.isfile(src):
             return
-        base_name = os.path.basename(src)
-        _, ext = os.path.splitext(base_name)
-        ext = ext or ".png"
-        label_text = (label or code).upper()
-        pretty_slug = filename_slug(caption, fallback="Acharya")
-        stem = f"{label_text}-{pretty_slug}"
-        stem = re.sub(r'[^A-Za-z0-9.-]', '-', stem).strip('-')
-        dest_name = f"{stem}{ext.lower()}"
-        suffix = 2
-        while dest_name.lower() in used_names and os.path.abspath(used_names[dest_name.lower()]) != os.path.abspath(src):
-            dest_name = f"{stem}-{suffix}{ext.lower()}"
-            suffix += 1
+        
+        # Use the original filename to match the provided HTML files, unless overridden
+        dest_name = os.path.basename(src)
+        override_name = HTML_IMAGE_FILENAME_OVERRIDES.get(code.lower())
+        if override_name:
+            dest_name = override_name
+
         dest_path = os.path.join(HTML_IMAGES_DIR, dest_name)
         if os.path.abspath(src) != os.path.abspath(dest_path):
             shutil.copy2(src, dest_path)
@@ -504,10 +504,10 @@ def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Di
         return '<div class="img-missing">Image coming soon</div>'
 
     hero_block = ""
-    timeline_founders = list(founders) # make a copy
+    timeline_founders = list(founders)  # make a copy
     hero = None
     if timeline_founders and timeline_founders[0]['id'] == 0:
-        hero = timeline_founders.pop(0) # F00 is hero, remove from timeline data
+        hero = timeline_founders.pop(0)  # F00 is hero, remove from timeline data
 
     anchor_lookup: Dict[int, str] = {}
     used_anchor_slugs: set[str] = set()
@@ -516,7 +516,10 @@ def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Di
         fid = int(item['id'])
         if fid in anchor_lookup:
             return anchor_lookup[fid]
-        base_slug = slugify_name(item['caption']) or f"{fid:02d}"
+
+        # Match anchor style from provided HTML
+        caption_part = item.get('caption', '').split('(')[0].strip()
+        base_slug = slugify_name(caption_part) or f"{fid:02d}"
         slug = base_slug
         suffix = 2
         while slug in used_anchor_slugs:
@@ -532,19 +535,25 @@ def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Di
         hero_img_meta = img_rel_map.get(hero_key)
         hero_img_html = card_image_html(hero_img_meta, hero['caption'])
         hero_anchor = ensure_anchor(hero)
-        hero_block = f"""
-          <a href="#{hero_anchor}" class="hero-link">
-            <div class="hero-frame">{hero_img_html}</div>
-            <figcaption class="hero-caption">{html.escape(hero['caption'])}</figcaption>
-          </a>
-        """
+        hero_block_lines = [
+            "",
+            "    ",
+            f'          <a href="#{hero_anchor}" class="hero-link">',
+            f'            <div class="hero-frame">{hero_img_html}</div>',
+            f'            <figcaption class="hero-caption">{html.escape(hero["caption"])}</figcaption>',
+            "          </a>",
+            "        ",
+            ""
+        ]
+        hero_block = "\n".join(hero_block_lines)
 
     lineage_groups = []
     seen_gids = set()
     grouped_by_gid = {}
-    for i, founder in enumerate(timeline_founders):
+    for founder in timeline_founders:
         gid = founder['group_id']
-        if gid not in grouped_by_gid: grouped_by_gid[gid] = []
+        if gid not in grouped_by_gid:
+            grouped_by_gid[gid] = []
         grouped_by_gid[gid].append(founder)
         ensure_anchor(founder)
     # Iterate through founders to maintain original order
@@ -558,44 +567,44 @@ def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Di
 
     lineage_flow_html = build_lineage_flow_html(lineage_groups, img_rel_map, card_image_html, anchor_lookup)
 
-    return f"""<!DOCTYPE html>
+    doc_template = Template("""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{html.escape(TITLE_TEXT)}</title>
+  <title>${title_text}</title>
   <style>
-    :root {{
+    :root {
       --bg: #f8f4ec;
       --ink: #3a2411;
       --gold: #b98d28;
       --track: #d8e6fb;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
+    }
+    * { box-sizing: border-box; }
+    body {
       margin: 0;
       font-family: "Gentium Plus","Noto Serif","Georgia",serif;
       background: var(--bg);
       color: var(--ink);
       line-height: 1.5;
-    }}
-    main {{
+    }
+    main {
       max-width: 1180px;
       margin: 0 auto;
       padding: 24px 16px 56px;
-    }}
-    header {{ text-align:center; margin-bottom: 14px; }}
-    header h1 {{
+    }
+    header { text-align:center; margin-bottom: 14px; }
+    header h1 {
       font-size: clamp(2.2rem, 4vw, 3.2rem);
       margin: 0 0 .35rem;
       letter-spacing: .03em;
-    }}
-    header p {{ margin: 0; color: #6b4d1f; font-size: clamp(1rem, 2vw, 1.25rem); }}
+    }
+    header p { margin: 0; color: #6b4d1f; font-size: clamp(1rem, 2vw, 1.25rem); }
 
     /* Hero */
-    a.hero-link {{ text-decoration: none; color: inherit; }}
-    a.hero-link {{ display:flex; flex-direction:column; align-items:center; margin: 18px 0 24px; }}
-    .hero-frame {{
+    a.hero-link { text-decoration: none; color: inherit; }
+    a.hero-link { display:flex; flex-direction:column; align-items:center; margin: 18px 0 24px; }
+    .hero-frame {
       width: min(280px, 70vw);
       aspect-ratio: 1/1;
       border-radius: 999px;
@@ -603,40 +612,40 @@ def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Di
       border: 6px solid var(--gold);
       background: transparent;
       box-shadow: 0 18px 36px rgba(0,0,0,.12);
-    }}
-    .hero-frame img {{ width:100%; height:100%; object-fit:cover; display:block; }}
-    .hero-caption {{
+    }
+    .hero-frame img { width:100%; height:100%; object-fit:cover; display:block; }
+    .hero-caption {
       margin-top: 12px;
       font-size: 1.2rem;
       font-weight: bold;
       text-align: center;
-    }}
+    }
 
     /* Lineage Flow */
-    .lineage-flow {{ margin-top: 24px; position: relative; }}
-    .lineage-row {{
+    .lineage-flow { margin-top: 24px; position: relative; }
+    .lineage-row {
       position: relative;
       padding: 28px 0 60px;
-    }}
-    .lineage-row .row-track {{
+    }
+    .lineage-row .row-track {
       position: relative;
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: clamp(18px, 3vw, 60px);
       padding: 0 8%;
-    }}
-    .lineage-row.dir-rtl .row-track {{
+    }
+    .lineage-row.dir-rtl .row-track {
       flex-direction: row-reverse;
-    }}
-    .lineage-step {{
+    }
+    .lineage-step {
       display: flex;
       flex-direction: column;
       align-items: center;
       flex: 1 1 0;
       min-width: 140px;
-    }}
-    .timeline-card {{
+    }
+    .timeline-card {
       text-decoration: none;
       color: inherit;
       display: flex;
@@ -644,8 +653,8 @@ def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Di
       align-items: center;
       gap: 8px;
       transition: transform 0.25s ease;
-    }}
-    .timeline-card .image-frame {{
+    }
+    .timeline-card .image-frame {
       width: clamp(110px, 9vw, 140px);
       aspect-ratio: 1 / 1;
       border-radius: 999px;
@@ -654,57 +663,95 @@ def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Di
       background: #fff;
       box-shadow: 0 12px 24px rgba(0,0,0,0.16);
       transition: transform 0.25s ease, box-shadow 0.25s ease;
-    }}
-    .timeline-card img {{ width: 100%; height: 100%; object-fit: cover; display: block; }}
-    .timeline-card figcaption {{ text-align: center; font-size: 0.95rem; line-height: 1.3; }}
-    .timeline-card:hover .image-frame {{
+    }
+    .timeline-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .timeline-card figcaption { text-align: center; font-size: 0.95rem; line-height: 1.3; }
+    .timeline-card:hover .image-frame {
       transform: scale(1.05);
       box-shadow: 0 18px 30px rgba(0,0,0,0.22);
-    }}
-    .timeline-card:focus-visible .image-frame {{
+    }
+    .timeline-card:focus-visible .image-frame {
       outline: 3px solid rgba(185,141,40,0.65);
       outline-offset: 4px;
-    }}
+    }
 
 
-    .img-missing {{
+    .img-missing {
       display:flex; align-items:center; justify-content:center;
       width:100%; height:100%; font-size:.9rem; color:#9a7736; padding:.5rem; text-align:center;
-    }}
+    }
+
+    /******************************************/
+    /*           RESPONSIVE STYLES            */
+    /******************************************/
+    @media (max-width: 768px) {
+      /* Stack the lineage items vertically on smaller screens */
+      .lineage-row .row-track {
+        flex-direction: column;
+        gap: 40px; /* Increase the gap for better vertical spacing */
+        padding: 0 16px; /* Reduce side padding */
+      }
+      
+      /* The reverse-direction class is no longer needed in a vertical layout */
+      .lineage-row.dir-rtl .row-track {
+        flex-direction: column;
+      }
+
+      /* Adjust padding on the row itself to reduce large gaps */
+      .lineage-row {
+        padding: 20px 0;
+      }
+
+      /* Allow items to size more naturally in a vertical stack */
+      .lineage-step {
+        min-width: 0;
+        width: 100%;
+        max-width: 280px; /* Optional: prevent items from becoming too wide */
+      }
+    }
 
   </style>
 </head>
-<body data-img-root="{HTML_IMAGE_BASE_URL}">
+<body>
   <main>
-    <header>
-      <h1>{html.escape(TITLE_TEXT)}</h1>
-      <p>{html.escape(SUBTITLE_TEXT)}</p>
+    <header id="acharyan-Guru-Parampara">
+      <h1>${title_text}</h1>
+      <p>${subtitle_text}</p>
     </header>
 
-    {hero_block}
-
+${hero_block}
     <!-- Lineage Flow -->
-    {lineage_flow_html}
-
+    
+${lineage_flow}
   </main>
   <script>
-    (function() {{
-      var body = document.body;
-      var attrRoot = body ? body.getAttribute("data-img-root") : "";
-      var root = attrRoot || window.FOUNDERS_IMG_ROOT || window.PARAKALA_IMG_ROOT || "{HTML_IMAGE_BASE_URL}";
+    window.PARAKALA_IMG_ROOT = "${remote_root}";
+  </script>
+  <script>
+    (function() {
+      var root = window.PARAKALA_IMG_ROOT || "${image_base_url}";
       if (!root) return;
       if (root.slice(-1) !== "/") root += "/";
-      document.querySelectorAll("img[data-img-file]").forEach(function(img) {{
+      document.querySelectorAll("img[data-img-file]").forEach(function(img) {
         var file = img.getAttribute("data-img-file");
-        if (file) {{
+        if (file) {
           img.src = root + file;
-        }}
-      }});
-    }})();
+        }
+      });
+    })();
   </script>
 </body>
 </html>
-"""
+""")
+
+    return doc_template.substitute(
+        title_text=html.escape(TITLE_TEXT),
+        subtitle_text=html.escape(SUBTITLE_TEXT),
+        hero_block=hero_block,
+        lineage_flow=lineage_flow_html,
+        remote_root=HTML_REMOTE_IMAGE_ROOT,
+        image_base_url=HTML_IMAGE_BASE_URL,
+    )
 
 def build_parakala_html_document(parakala: List[dict], img_rel_map: Dict[str, Dict[str,str]]) -> str:
     """
@@ -725,59 +772,67 @@ def build_parakala_html_document(parakala: List[dict], img_rel_map: Dict[str, Di
             img_key = f"{pid:02d}00"
             img_meta = img_rel_map.get(img_key)
             img_html = card_image_html(img_meta, item['caption'])
-            anchor_href = f"#acharyan-{pid}"
-            parakala_items_html.append(f"""
+            anchor_href = f"#acharyan-{pid}"  # Matches existing HTML
+            parakala_items_html.append(
+                f"""
               <a href="{anchor_href}" class="grid-item-link">
                 <figure class="grid-item">
                   <div class="grid-item-frame">{img_html}</div>
                   <figcaption>{html.escape(item['caption'])}</figcaption>
                 </figure>
               </a>
-            """)
-        parakala_grid_html = f"""
-          <div class="parakala-grid">
-            {''.join(parakala_items_html)}
-          </div>
-        """
+            """
+            )
+        items_markup = ''.join(parakala_items_html)
+        parakala_grid_lines = [
+            "",
+            "    ",
+            '          <div class="parakala-grid">',
+            f'            {items_markup}',
+            "          </div>",
+            "        ",
+            ""
+        ]
+        parakala_grid_html = "\n".join(parakala_grid_lines)
 
-    return f"""<!DOCTYPE html>
+    doc_template = Template("""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{html.escape(SECTION2_TITLE)}</title>
+  <title>${page_title}</title>
   <style>
-    :root {{
+    :root {
       --bg: #f8f4ec;
       --ink: #3a2411;
       --gold: #b98d28;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
+    }
+    * { box-sizing: border-box; }
+    body {
       margin: 0;
       font-family: "Gentium Plus","Noto Serif","Georgia",serif;
       background: var(--bg);
       color: var(--ink);
       line-height: 1.5;
-    }}
-    main {{
+    }
+    main {
       max-width: 1180px;
       margin: 0 auto;
       padding: 24px 16px 56px;
-    }}
-    .section-header {{ text-align:center; margin: 0 0 24px; }}
-    .section-header h2 {{ font-size: clamp(1.8rem, 3vw, 2.5rem); margin:0 0 4px; }}
-    .section-header p {{ margin:0; color: #6b4d1f; font-size: clamp(1rem, 2vw, 1.15rem); }}
-    .parakala-grid {{
+    }
+    .section-header { text-align:center; margin: 0 0 24px; }
+    .section-header h2 { font-size: clamp(1.8rem, 3vw, 2.5rem); margin:0 0 4px; }
+    .section-header p { margin:0; color: #6b4d1f; font-size: clamp(1rem, 2vw, 1.15rem); }
+    .parakala-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
       gap: 24px 16px;
       max-width: 1100px;
       margin: 0 auto;
-    }}
-    a.grid-item-link {{ text-decoration: none; color: inherit; display: block; }}
-    .grid-item {{ margin: 0; text-align: center; display: block; }}
-    .grid-item-frame {{
+    }
+    a.grid-item-link { text-decoration: none; color: inherit; display: block; }
+    .grid-item { margin: 0; text-align: center; display: block; }
+    .grid-item-frame {
       width: 100%;
       aspect-ratio: 1/1;
       border-radius: 999px;
@@ -787,52 +842,63 @@ def build_parakala_html_document(parakala: List[dict], img_rel_map: Dict[str, Di
       background: transparent;
       box-shadow: 0 8px 16px rgba(0,0,0,0.1);
       transition: transform 0.25s ease, box-shadow 0.25s ease;
-    }}
-    .grid-item-frame img {{ width: 100%; height: 100%; object-fit: cover; display: block; }}
-    .grid-item-link:hover .grid-item-frame {{
+    }
+    .grid-item-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .grid-item-link:hover .grid-item-frame {
       transform: scale(1.05);
       box-shadow: 0 14px 28px rgba(0,0,0,0.18);
-    }}
-    .grid-item-link:focus-visible .grid-item-frame {{
+    }
+    .grid-item-link:focus-visible .grid-item-frame {
       outline: 3px solid rgba(185,141,40,0.65);
       outline-offset: 4px;
-    }}
-    .grid-item figcaption {{ font-size: 0.9rem; line-height: 1.2; }}
-    .img-missing {{
+    }
+    .grid-item figcaption { font-size: 0.9rem; line-height: 1.2; }
+    .img-missing {
       display:flex; align-items:center; justify-content:center;
       width:100%; height:100%; font-size:.9rem; color:#9a7736; padding:.5rem; text-align:center;
-    }}
-     @media (max-width: 600px) {{
-      .parakala-grid {{ grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }}
-    }}
+    }
+     @media (max-width: 600px) {
+      .parakala-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+    }
   </style>
 </head>
-<body data-img-root="{HTML_IMAGE_BASE_URL}">
+<body>
   <main>
     <header class="section-header">
-      <h2>{html.escape(SECTION2_TITLE)}</h2>
-      <p>{html.escape(SECTION2_SUB)}</p>
+      <h2>${section_title}</h2>
+      <p>${section_subtitle}</p>
     </header>
-    {parakala_grid_html}
+
+${parakala_grid}
   </main>
   <script>
-    (function() {{
-      var body = document.body;
-      var attrRoot = body ? body.getAttribute("data-img-root") : "";
-      var root = attrRoot || window.PARAKALA_IMG_ROOT || "{HTML_IMAGE_BASE_URL}";
+    window.PARAKALA_IMG_ROOT = "${remote_root}";
+  </script>
+  <script>
+    (function() {
+      var root = window.PARAKALA_IMG_ROOT || "${image_base_url}";
       if (!root) return;
       if (root.slice(-1) !== "/") root += "/";
-      document.querySelectorAll("img[data-img-file]").forEach(function(img) {{
+      document.querySelectorAll("img[data-img-file]").forEach(function(img) {
         var file = img.getAttribute("data-img-file");
-        if (file) {{
+        if (file) {
           img.src = root + file;
-        }}
-      }});
-    }})();
+        }
+      });
+    })();
   </script>
 </body>
 </html>
-"""
+""")
+
+    return doc_template.substitute(
+        page_title=html.escape(SECTION2_TITLE),
+        section_title=html.escape(SECTION2_TITLE),
+        section_subtitle=html.escape(SECTION2_SUB),
+        parakala_grid=parakala_grid_html,
+        remote_root=HTML_REMOTE_IMAGE_ROOT,
+        image_base_url=HTML_IMAGE_BASE_URL,
+    )
 
 def build_lineage_flow_html(lineage_groups: List[List[dict]], img_rel_map: Dict[str, Dict[str,str]],
                             card_image_html_fn, anchor_lookup: Optional[Dict[int,str]] = None) -> str:
@@ -861,11 +927,13 @@ def build_lineage_flow_html(lineage_groups: List[List[dict]], img_rel_map: Dict[
             if not acharya:
                 continue
             key = f"f{int(acharya['id']):02d}".lower()
-            anchor_id = None
+            anchor_id = None # Initialize anchor_id
             if anchor_lookup:
                 anchor_id = anchor_lookup.get(int(acharya['id']))
             if not anchor_id:
-                anchor_id = f"acharyan-{int(acharya['id'])}"
+                # This case should ideally not be hit if ensure_anchor was called for all founders.
+                # As a safe fallback, generate a slug-based anchor.
+                anchor_id = f"acharyan-{slugify_name(acharya.get('caption', str(acharya['id'])))}"
             anchor_href = f"#{anchor_id}"
             img_meta = img_rel_map.get(key)
             img_html = card_image_html_fn(img_meta, acharya['caption'])
@@ -890,13 +958,16 @@ def build_lineage_flow_html(lineage_groups: List[List[dict]], img_rel_map: Dict[
             """
         )
 
+    rows_markup = ''.join(rows_html)
     return f"""
       <section class="lineage-flow">
         <header class="section-header" style="margin-bottom: 28px;">
           <h2>Founders &amp; Early Āchāryas</h2>
         </header>
-        {''.join(rows_html)}
+        
+{rows_markup}
       </section>
+    
     """
 
 def generate_html_bundle(founders: List[dict], parakala: List[dict],
