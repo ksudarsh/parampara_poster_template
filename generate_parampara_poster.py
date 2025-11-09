@@ -61,6 +61,19 @@ ALLOW_JPG_IMAGES      = True
 IMG_EXTS              = (".png", ".jpg", ".jpeg") if ALLOW_JPG_IMAGES else (".png",)
 RELAXED_MATCH_ANYWHERE = True  # match codes anywhere in filename
 
+# Explicit row ordering for the Founders/Early Acharyas timeline (HTML + poster).
+FOUNDERS_ROW_CONFIGS: List[Dict[str, object]] = [
+    {"ids": [1, 2],          "dir": "ltr"},
+    {"ids": [3, 4, 5],       "dir": "rtl"},
+    {"ids": [6, 7, 8],       "dir": "ltr"},
+    {"ids": [9, 11, 13],     "dir": "rtl", "tag": "fork-top"},
+    {"ids": [10, 12, 14],    "dir": "rtl", "tag": "fork-bottom"},
+    {"ids": [15, 16, 17],    "dir": "ltr"},
+]
+
+# Limits the maximum column width used for the founders rows so widely spaced rows stay compact.
+MAX_FOUNDERS_CELL_WIDTH_RATIO = 0.22
+
 # ---------- Paths ----------
 HERE        = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR  = os.path.join(HERE, "assets")
@@ -426,6 +439,17 @@ def slugify_name(name: str) -> str:
     s = re.sub(r'[\s-]+', '-', s).strip('-') # replace spaces/hyphens with a single hyphen
     return s
 
+def filename_slug(title: str, fallback: str = "Acharya") -> str:
+    """Returns a Title-Case slug suitable for filenames (e.g., Early-Acharya)."""
+    base = slugify_name(title)
+    if not base:
+        base = slugify_name(fallback) or fallback.lower()
+    tokens = [tok.capitalize() for tok in base.split('-') if tok]
+    if not tokens:
+        tokens = [fallback.title()]
+    slug = "-".join(tokens)
+    return slug[:60].rstrip('-') or fallback.title()
+
 # ---------- HTML helpers ----------
 def ensure_dir(path: str):
     os.makedirs(path, exist_ok=True)
@@ -437,15 +461,20 @@ def prepare_html_image_map(founders: List[dict], parakala: List[dict],
     rel_map: Dict[str, Dict[str,str]] = {}
     used_names: Dict[str,str] = {}
 
-    def register(code: str, src: Optional[str]):
+    def register(code: str, src: Optional[str], caption: str = "", label: Optional[str] = None):
         if not src or not os.path.isfile(src):
             return
         base_name = os.path.basename(src)
-        dest_name = base_name
-        stem, ext = os.path.splitext(base_name)
-        suffix = 1
+        _, ext = os.path.splitext(base_name)
+        ext = ext or ".png"
+        label_text = (label or code).upper()
+        pretty_slug = filename_slug(caption, fallback="Acharya")
+        stem = f"{label_text}-{pretty_slug}"
+        stem = re.sub(r'[^A-Za-z0-9.-]', '-', stem).strip('-')
+        dest_name = f"{stem}{ext.lower()}"
+        suffix = 2
         while dest_name.lower() in used_names and os.path.abspath(used_names[dest_name.lower()]) != os.path.abspath(src):
-            dest_name = f"{stem}_{code}_{suffix}{ext}"
+            dest_name = f"{stem}-{suffix}{ext.lower()}"
             suffix += 1
         dest_path = os.path.join(HTML_IMAGES_DIR, dest_name)
         if os.path.abspath(src) != os.path.abspath(dest_path):
@@ -455,10 +484,12 @@ def prepare_html_image_map(founders: List[dict], parakala: List[dict],
 
     for item in founders:
         code = f"f{int(item['id']):02d}".lower()
-        register(code, founders_map.get(code, ""))
+        label = f"F{int(item['id']):02d}"
+        register(code, founders_map.get(code, ""), caption=item.get("caption",""), label=label)
     for item in parakala:
         code = f"{int(item['id']):02d}00"
-        register(code, parakala_map.get(code, ""))
+        label = f"P{int(item['id']):02d}"
+        register(code, parakala_map.get(code, ""), caption=item.get("caption",""), label=label)
     return rel_map
 
 def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Dict[str,str]]) -> str:
@@ -474,14 +505,35 @@ def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Di
 
     hero_block = ""
     timeline_founders = list(founders) # make a copy
+    hero = None
     if timeline_founders and timeline_founders[0]['id'] == 0:
         hero = timeline_founders.pop(0) # F00 is hero, remove from timeline data
+
+    anchor_lookup: Dict[int, str] = {}
+    used_anchor_slugs: set[str] = set()
+
+    def ensure_anchor(item: dict) -> str:
+        fid = int(item['id'])
+        if fid in anchor_lookup:
+            return anchor_lookup[fid]
+        base_slug = slugify_name(item['caption']) or f"{fid:02d}"
+        slug = base_slug
+        suffix = 2
+        while slug in used_anchor_slugs:
+            slug = f"{base_slug}-{suffix}"
+            suffix += 1
+        used_anchor_slugs.add(slug)
+        anchor = f"acharyan-{slug}"
+        anchor_lookup[fid] = anchor
+        return anchor
+
+    if hero:
         hero_key = f"f{hero['id']:02d}".lower()
         hero_img_meta = img_rel_map.get(hero_key)
         hero_img_html = card_image_html(hero_img_meta, hero['caption'])
-        anchor_href = f"#acharyan-{int(hero['id'])}"
+        hero_anchor = ensure_anchor(hero)
         hero_block = f"""
-          <a href="{anchor_href}" class="hero-link">
+          <a href="#{hero_anchor}" class="hero-link">
             <div class="hero-frame">{hero_img_html}</div>
             <figcaption class="hero-caption">{html.escape(hero['caption'])}</figcaption>
           </a>
@@ -494,6 +546,7 @@ def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Di
         gid = founder['group_id']
         if gid not in grouped_by_gid: grouped_by_gid[gid] = []
         grouped_by_gid[gid].append(founder)
+        ensure_anchor(founder)
     # Iterate through founders to maintain original order
     for founder in timeline_founders:
         gid = founder['group_id']
@@ -503,7 +556,7 @@ def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Di
         lineage_groups.append(group)
         seen_gids.add(gid)
 
-    lineage_flow_html = build_lineage_flow_html(lineage_groups, img_rel_map, card_image_html)
+    lineage_flow_html = build_lineage_flow_html(lineage_groups, img_rel_map, card_image_html, anchor_lookup)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -621,7 +674,7 @@ def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Di
 
   </style>
 </head>
-<body>
+<body data-img-root="{HTML_IMAGE_BASE_URL}">
   <main>
     <header>
       <h1>{html.escape(TITLE_TEXT)}</h1>
@@ -636,7 +689,9 @@ def build_founders_html_document(founders: List[dict], img_rel_map: Dict[str, Di
   </main>
   <script>
     (function() {{
-      var root = window.PARAKALA_IMG_ROOT || "{HTML_IMAGE_BASE_URL}";
+      var body = document.body;
+      var attrRoot = body ? body.getAttribute("data-img-root") : "";
+      var root = attrRoot || window.FOUNDERS_IMG_ROOT || window.PARAKALA_IMG_ROOT || "{HTML_IMAGE_BASE_URL}";
       if (!root) return;
       if (root.slice(-1) !== "/") root += "/";
       document.querySelectorAll("img[data-img-file]").forEach(function(img) {{
@@ -752,7 +807,7 @@ def build_parakala_html_document(parakala: List[dict], img_rel_map: Dict[str, Di
     }}
   </style>
 </head>
-<body>
+<body data-img-root="{HTML_IMAGE_BASE_URL}">
   <main>
     <header class="section-header">
       <h2>{html.escape(SECTION2_TITLE)}</h2>
@@ -762,7 +817,9 @@ def build_parakala_html_document(parakala: List[dict], img_rel_map: Dict[str, Di
   </main>
   <script>
     (function() {{
-      var root = window.PARAKALA_IMG_ROOT || "{HTML_IMAGE_BASE_URL}";
+      var body = document.body;
+      var attrRoot = body ? body.getAttribute("data-img-root") : "";
+      var root = attrRoot || window.PARAKALA_IMG_ROOT || "{HTML_IMAGE_BASE_URL}";
       if (!root) return;
       if (root.slice(-1) !== "/") root += "/";
       document.querySelectorAll("img[data-img-file]").forEach(function(img) {{
@@ -777,25 +834,21 @@ def build_parakala_html_document(parakala: List[dict], img_rel_map: Dict[str, Di
 </html>
 """
 
-def build_lineage_flow_html(lineage_groups: List[List[dict]], img_rel_map: Dict[str, Dict[str,str]], card_image_html_fn) -> str:
+def build_lineage_flow_html(lineage_groups: List[List[dict]], img_rel_map: Dict[str, Dict[str,str]],
+                            card_image_html_fn, anchor_lookup: Optional[Dict[int,str]] = None) -> str:
     if not lineage_groups:
         return ""
 
-    all_acharyas = {item['id']: item for group in lineage_groups for item in group}
-
-    row_configs = [
-        {"ids": [1, 2, 3],    "dir": "ltr"},
-        {"ids": [6, 5, 4],    "dir": "rtl"},
-        {"ids": [7, 8, 9],    "dir": "ltr"},
-        {"ids": [14, 12, 10], "dir": "rtl", "tag": "fork-top"},
-        {"ids": [15, 13, 11], "dir": "rtl", "tag": "fork-bottom"},
-        {"ids": [16, 17, 18], "dir": "ltr"}
+    flat_acharyas = [item for group in lineage_groups for item in group]
+    all_acharyas = {item['id']: item for item in flat_acharyas}
+    row_configs = FOUNDERS_ROW_CONFIGS or [
+        {"ids": [item['id'] for item in flat_acharyas], "dir": "ltr"}
     ]
 
     rows_html: List[str] = []
     for idx, cfg in enumerate(row_configs):
         row_index = idx + 1
-        row_classes = ["lineage-row", f"row-{row_index}", f"dir-{cfg['dir']}"]
+        row_classes = ["lineage-row", f"row-{row_index}", "dir-ltr"]
         if row_index == len(row_configs):
             row_classes.append("row-last")
         tag = cfg.get("tag")
@@ -808,7 +861,12 @@ def build_lineage_flow_html(lineage_groups: List[List[dict]], img_rel_map: Dict[
             if not acharya:
                 continue
             key = f"f{int(acharya['id']):02d}".lower()
-            anchor_href = f"#acharyan-{int(acharya['id'])}"
+            anchor_id = None
+            if anchor_lookup:
+                anchor_id = anchor_lookup.get(int(acharya['id']))
+            if not anchor_id:
+                anchor_id = f"acharyan-{int(acharya['id'])}"
+            anchor_href = f"#{anchor_id}"
             img_meta = img_rel_map.get(key)
             img_html = card_image_html_fn(img_meta, acharya['caption'])
             steps_html.append(
@@ -920,6 +978,7 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
     # Map founders
     featured = None
     grouped_plain: Dict[str, List[dict]] = {}
+    acharya_lookup: Dict[int, dict] = {}
     for it in founders_data:
         fid = it['id']
         key = f"f{fid:02d}"
@@ -928,7 +987,9 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
             featured = {**it, "path": path}
         else:
             gid = str(it['group_id'])
-            grouped_plain.setdefault(gid, []).append({**it, "path": path})
+            enriched = {**it, "path": path}
+            grouped_plain.setdefault(gid, []).append(enriched)
+            acharya_lookup[fid] = enriched
 
     # Featured F00
     if featured:
@@ -956,24 +1017,58 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
         d.text(((page_w-lw)//2,   y2),   featured["caption"], font=cap_font, fill=fg)
         y = y2 + lh + 28
 
-    # Founders in 2 rows; contemporaries stacked within columns
-    ordered_groups: List[List[dict]] = []
-    seen=set()
-    for it in sum(grouped_plain.values(), []):
-        gid = str(it['group_id'])
-        if gid in seen: continue
-        ordered_groups.append(grouped_plain[gid]); seen.add(gid)
-    total_groups = len(ordered_groups)
-    rows_groups = [[],[]]
-    if total_groups>0:
-        row1_count = math.ceil(total_groups/2)
-        rows_groups = [ordered_groups[:row1_count], ordered_groups[row1_count:]]
+    configured_rows: List[List[List[dict]]] = []
+    if acharya_lookup:
+        seen_configured: set[int] = set()
+        for cfg in FOUNDERS_ROW_CONFIGS:
+            cfg_ids = cfg.get("ids") or []
+            if not isinstance(cfg_ids, (list, tuple)):
+                cfg_ids = [cfg_ids]
+            columns: List[List[dict]] = []
+            for fid in cfg_ids:
+                try:
+                    fid_int = int(fid)
+                except (TypeError, ValueError):
+                    continue
+                node = acharya_lookup.get(fid_int)
+                if not node:
+                    continue
+                columns.append([node])
+                seen_configured.add(fid_int)
+            if columns:
+                configured_rows.append(columns)
+        leftovers = [acharya_lookup[fid] for fid in sorted(acharya_lookup) if fid not in seen_configured]
+        if leftovers:
+            configured_rows.append([[node] for node in leftovers])
+
+    if configured_rows:
+        rows_groups: List[List[List[dict]]] = configured_rows
+    else:
+        # Fallback to default grouping logic (maintain backward compatibility)
+        ordered_groups: List[List[dict]] = []
+        seen=set()
+        for it in sum(grouped_plain.values(), []):
+            gid = str(it['group_id'])
+            if gid in seen: 
+                continue
+            ordered_groups.append(grouped_plain[gid])
+            seen.add(gid)
+        total_groups = len(ordered_groups)
+        rows_groups = [[],[]]
+        if total_groups>0:
+            row1_count = math.ceil(total_groups/2)
+            rows_groups = [ordered_groups[:row1_count], ordered_groups[row1_count:]]
 
     def draw_group_row(row_groups: List[List[dict]], start_y: int) -> int:
         if not row_groups: return 0
         cols = len(row_groups)
         total_gutter = (cols-1)*gutter_x
-        cell_w = (page_w - 2*margin - total_gutter)//max(1,cols)
+        row_available_width = page_w - 2*margin
+        natural_cell_w = (row_available_width - total_gutter)//max(1,cols)
+        max_cell_w = max(1, int(page_w * MAX_FOUNDERS_CELL_WIDTH_RATIO))
+        cell_w = max(1, min(natural_cell_w, max_cell_w))
+        row_width = cols*cell_w + total_gutter
+        x_start = margin + max(0, (row_available_width - row_width)//2)
 
         def draw_cell(x:int, y0:int, img_path:str, caption:str, magnification:float=1.0, measure_only:bool=False) -> int:
             img_w_max = int(cell_w * magnification)
@@ -1033,7 +1128,7 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
             col_heights.append(acc)
         row_h = max(col_heights) if col_heights else 0
 
-        draw_x = margin
+        draw_x = x_start
         for col_idx, grp in enumerate(row_groups):
             y_cursor = start_y + (row_h - col_heights[col_idx])//2
             for item in grp:
