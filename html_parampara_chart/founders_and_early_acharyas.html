@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sri Parakala Matham Guru Parampara</title>
+  <style>
+    :root {
+      --bg: #f8f4ec;
+      --ink: #3a2411;
+      --gold: #b98d28;
+      --track: #d8e6fb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Gentium Plus","Noto Serif","Georgia",serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.5;
+    }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 24px 16px 56px;
+    }
+    header { text-align:center; margin-bottom: 14px; }
+    header h1 {
+      font-size: clamp(2.2rem, 4vw, 3.2rem);
+      margin: 0 0 .35rem;
+      letter-spacing: .03em;
+    }
+    header p { margin: 0; color: #6b4d1f; font-size: clamp(1rem, 2vw, 1.25rem); }
+
+    /* Hero */
+    a.hero-link { text-decoration: none; color: inherit; }
+    a.hero-link { display:flex; flex-direction:column; align-items:center; margin: 18px 0 24px; }
+    .hero-frame {
+      width: min(280px, 70vw);
+      aspect-ratio: 1/1;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 6px solid var(--gold);
+      background: transparent;
+      box-shadow: 0 18px 36px rgba(0,0,0,.12);
+    }
+    .hero-frame img { width:100%; height:100%; object-fit:cover; display:block; }
+    .hero-caption {
+      margin-top: 12px;
+      font-size: 1.2rem;
+      font-weight: bold;
+      text-align: center;
+    }
+
+    /* Lineage Flow */
+    .lineage-flow { margin-top: 24px; position: relative; }
+    .lineage-row {
+      position: relative;
+      padding: 28px 0 60px;
+    }
+    .lineage-row .row-track {
+      position: relative;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: clamp(18px, 3vw, 60px);
+      padding: 0 8%;
+    }
+    .lineage-row.dir-rtl .row-track {
+      flex-direction: row-reverse;
+    }
+    .lineage-step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex: 1 1 0;
+      min-width: 140px;
+    }
+    .timeline-card {
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      transition: transform 0.25s ease;
+    }
+    .timeline-card .image-frame {
+      width: clamp(110px, 9vw, 140px);
+      aspect-ratio: 1 / 1;
+      border-radius: 999px;
+      border: 5px solid var(--gold);
+      overflow: hidden;
+      background: #fff;
+      box-shadow: 0 12px 24px rgba(0,0,0,0.16);
+      transition: transform 0.25s ease, box-shadow 0.25s ease;
+    }
+    .timeline-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .timeline-card figcaption { text-align: center; font-size: 0.95rem; line-height: 1.3; }
+    .timeline-card:hover .image-frame {
+      transform: scale(1.05);
+      box-shadow: 0 18px 30px rgba(0,0,0,0.22);
+    }
+    .timeline-card:focus-visible .image-frame {
+      outline: 3px solid rgba(185,141,40,0.65);
+      outline-offset: 4px;
+    }
+
+
+    .img-missing {
+      display:flex; align-items:center; justify-content:center;
+      width:100%; height:100%; font-size:.9rem; color:#9a7736; padding:.5rem; text-align:center;
+    }
+
+  </style>
+</head>
+<body data-img-root="images/">
+  <main>
+    <header>
+      <h1>Sri Parakala Matham Guru Parampara</h1>
+      <p>Established by Sri Vedanta Desika in 1359 CE</p>
+    </header>
+
+    
+          <a href="#acharyan-sri-lakshmi-hayagriva" class="hero-link">
+            <div class="hero-frame"><img src="images/F00-Sri-Lakshmi-Hayagriva.png" data-img-file="F00-Sri-Lakshmi-Hayagriva.png" alt="Sri Lakshmi Hayagriva" loading="lazy" decoding="async" /></div>
+            <figcaption class="hero-caption">Sri Lakshmi Hayagriva</figcaption>
+          </a>
+        
+
+    <!-- Lineage Flow -->
+    
+      <section class="lineage-flow">
+        <header class="section-header" style="margin-bottom: 28px;">
+          <h2>Founders &amp; Early Āchāryas</h2>
+        </header>
+        
+            <div class="lineage-row row-1 dir-ltr">
+              <div class="row-track">
+                
+                <div class="lineage-step">
+                  <a href="#acharyan-sri-vishvaksena" class="timeline-card">
+                    <div class="image-frame"><img src="images/F01-Sri-Vishvaksena.png" data-img-file="F01-Sri-Vishvaksena.png" alt="Sri Vishvaksena" loading="lazy" decoding="async" /></div>
+                    <figcaption>Sri Vishvaksena</figcaption>
+                  </a>
+                </div>
+                
+                <div class="lineage-step">
+                  <a href="#acharyan-swamy-nammalvar" class="timeline-card">
+                    <div class="image-frame"><img src="images/F02-Swamy-Nammalvar.png" data-img-file="F02-Swamy-Nammalvar.png" alt="Swamy Nammāḷvār" loading="lazy" decoding="async" /></div>
+                    <figcaption>Swamy Nammāḷvār</figcaption>
+                  </a>
+                </div>
+                
+              </div>
+            </div>
+            
+            <div class="lineage-row row-2 dir-ltr">
+              <div class="row-track">
+                
+                <div class="lineage-step">
+                  <a href="#acharyan-sriman-natha-muni" class="timeline-card">
+                    <div class="image-frame"><img src="images/F03-Sriman-Natha-Muni.png" data-img-file="F03-Sriman-Natha-Muni.png" alt="Sriman Nātha Muni" loading="lazy" decoding="async" /></div>
+                    <figcaption>Sriman Nātha Muni</figcaption>
+                  </a>
+                </div>
+                
+                <div class="lineage-step">
+                  <a href="#acharyan-sri-uyyakkondar" class="timeline-card">
+                    <div class="image-frame"><img src="images/F04-Sri-Uyyakkondar.png" data-img-file="F04-Sri-Uyyakkondar.png" alt="Sri Uyyakkoṇḍār" loading="lazy" decoding="async" /></div>
+                    <figcaption>Sri Uyyakkoṇḍār</figcaption>
+                  </a>
+                </div>
+                
+                <div class="lineage-step">
+                  <a href="#acharyan-sri-manakkal-nambi" class="timeline-card">
+                    <div class="image-frame"><img src="images/F05-Sri-Manakkal-Nambi.png" data-img-file="F05-Sri-Manakkal-Nambi.png" alt="Sri Manakkāl Nambi" loading="lazy" decoding="async" /></div>
+                    <figcaption>Sri Manakkāl Nambi</figcaption>
+                  </a>
+                </div>
+                
+              </div>
+            </div>
+            
+            <div class="lineage-row row-3 dir-ltr">
+              <div class="row-track">
+                
+                <div class="lineage-step">
+                  <a href="#acharyan-srimad-yamunacharya" class="timeline-card">
+                    <div class="image-frame"><img src="images/F06-Srimad-Yamunacharya.png" data-img-file="F06-Srimad-Yamunacharya.png" alt="Srimad Yamunacharya" loading="lazy" decoding="async" /></div>
+                    <figcaption>Srimad Yamunacharya</figcaption>
+                  </a>
+                </div>
+                
+                <div class="lineage-step">
+                  <a href="#acharyan-sri-periya-nambi" class="timeline-card">
+                    <div class="image-frame"><img src="images/F07-Sri-Periya-Nambi.png" data-img-file="F07-Sri-Periya-Nambi.png" alt="Sri Periya Nambi" loading="lazy" decoding="async" /></div>
+                    <figcaption>Sri Periya Nambi</figcaption>
+                  </a>
+                </div>
+                
+                <div class="lineage-step">
+                  <a href="#acharyan-bhagavad-ramanuja" class="timeline-card">
+                    <div class="image-frame"><img src="images/F08-Bhagavad-Ramanuja.png" data-img-file="F08-Bhagavad-Ramanuja.png" alt="Bhagavad Rāmānuja" loading="lazy" decoding="async" /></div>
+                    <figcaption>Bhagavad Rāmānuja</figcaption>
+                  </a>
+                </div>
+                
+              </div>
+            </div>
+            
+            <div class="lineage-row row-4 dir-ltr fork-top">
+              <div class="row-track">
+                
+                <div class="lineage-step">
+                  <a href="#acharyan-tirukkurugai-piran-pillan" class="timeline-card">
+                    <div class="image-frame"><img src="images/F09-Tirukkurugai-Piran-Pillan.png" data-img-file="F09-Tirukkurugai-Piran-Pillan.png" alt="Tirukkurugai Pirān Piḷḷān" loading="lazy" decoding="async" /></div>
+                    <figcaption>Tirukkurugai Pirān Piḷḷān</figcaption>
+                  </a>
+                </div>
+                
+                <div class="lineage-step">
+                  <a href="#acharyan-engalalvan" class="timeline-card">
+                    <div class="image-frame"><img src="images/F11-Engalalvan.png" data-img-file="F11-Engalalvan.png" alt="Engalāḷvān" loading="lazy" decoding="async" /></div>
+                    <figcaption>Engalāḷvān</figcaption>
+                  </a>
+                </div>
+                
+                <div class="lineage-step">
+                  <a href="#acharyan-nadadur-ammal" class="timeline-card">
+                    <div class="image-frame"><img src="images/F13-Nadadur-Ammal.png" data-img-file="F13-Nadadur-Ammal.png" alt="Naḍāḍur Ammāḷ" loading="lazy" decoding="async" /></div>
+                    <figcaption>Naḍāḍur Ammāḷ</figcaption>
+                  </a>
+                </div>
+                
+              </div>
+            </div>
+            
+            <div class="lineage-row row-5 dir-ltr fork-bottom">
+              <div class="row-track">
+                
+                <div class="lineage-step">
+                  <a href="#acharyan-kidambi-acchan" class="timeline-card">
+                    <div class="image-frame"><img src="images/F10-Kidambi-Acchan.png" data-img-file="F10-Kidambi-Acchan.png" alt="Kidambi Ācchan" loading="lazy" decoding="async" /></div>
+                    <figcaption>Kidambi Ācchan</figcaption>
+                  </a>
+                </div>
+                
+                <div class="lineage-step">
+                  <a href="#acharyan-kidambi-ramanuja-pillan" class="timeline-card">
+                    <div class="image-frame"><img src="images/F12-Kidambi-Ramanuja-Pillan.png" data-img-file="F12-Kidambi-Ramanuja-Pillan.png" alt="Kidambi Rāmānuja Piḷḷān" loading="lazy" decoding="async" /></div>
+                    <figcaption>Kidambi Rāmānuja Piḷḷān</figcaption>
+                  </a>
+                </div>
+                
+                <div class="lineage-step">
+                  <a href="#acharyan-kidambi-rangarajacharya" class="timeline-card">
+                    <div class="image-frame"><img src="images/F14-Kidambi-Rangarajacharya.png" data-img-file="F14-Kidambi-Rangarajacharya.png" alt="Kidambi Raṅgarājāchārya" loading="lazy" decoding="async" /></div>
+                    <figcaption>Kidambi Raṅgarājāchārya</figcaption>
+                  </a>
+                </div>
+                
+              </div>
+            </div>
+            
+            <div class="lineage-row row-6 dir-ltr row-last">
+              <div class="row-track">
+                
+                <div class="lineage-step">
+                  <a href="#acharyan-kidambi-appullar" class="timeline-card">
+                    <div class="image-frame"><img src="images/F15-Kidambi-Appullar.png" data-img-file="F15-Kidambi-Appullar.png" alt="Kidambi Appuḷḷār" loading="lazy" decoding="async" /></div>
+                    <figcaption>Kidambi Appuḷḷār</figcaption>
+                  </a>
+                </div>
+                
+                <div class="lineage-step">
+                  <a href="#acharyan-nigamanta-maha-desikan" class="timeline-card">
+                    <div class="image-frame"><img src="images/F16-Nigamanta-Maha-Desikan.png" data-img-file="F16-Nigamanta-Maha-Desikan.png" alt="Nigamānta Mahā Desikan" loading="lazy" decoding="async" /></div>
+                    <figcaption>Nigamānta Mahā Desikan</figcaption>
+                  </a>
+                </div>
+                
+                <div class="lineage-step">
+                  <a href="#acharyan-kumara-varadacharya" class="timeline-card">
+                    <div class="image-frame"><img src="images/F17-Kumara-Varadacharya.png" data-img-file="F17-Kumara-Varadacharya.png" alt="Kumāra Varadāchārya" loading="lazy" decoding="async" /></div>
+                    <figcaption>Kumāra Varadāchārya</figcaption>
+                  </a>
+                </div>
+                
+              </div>
+            </div>
+            
+      </section>
+    
+
+  </main>
+  <script>
+    (function() {
+      var body = document.body;
+      var attrRoot = body ? body.getAttribute("data-img-root") : "";
+      var root = attrRoot || window.FOUNDERS_IMG_ROOT || window.PARAKALA_IMG_ROOT || "images/";
+      if (!root) return;
+      if (root.slice(-1) !== "/") root += "/";
+      document.querySelectorAll("img[data-img-file]").forEach(function(img) {
+        var file = img.getAttribute("data-img-file");
+        if (file) {
+          img.src = root + file;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
