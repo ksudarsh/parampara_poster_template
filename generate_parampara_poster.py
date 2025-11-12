@@ -31,8 +31,8 @@ print(">>> Python:", sys.executable)
 TITLE_TEXT      = "Sri Parakala Matham Guru Parampara"
 SUBTITLE_TEXT   = "Established by Sri Vedanta Desika in 1359 CE"
 FOOTER_TEXT     = "Sri Parakala Swamy Mutt – The Eternal Lineage of Sri Vedanta Desika"
-SECTION2_TITLE  = "Sri Parakāla Acharyas"
-SECTION2_SUB    = "Lineage of Brahmatantra Svatantra Swamis"
+SECTION2_TITLE  = "Sri Parakāla Āchāryas"
+SECTION2_SUB    = "Lineage of Brahmatantra Swatantra Swamis"
 
 # ---------- Style / Flags ----------
 TITLE_FONT_WEIGHT    = "Bold"
