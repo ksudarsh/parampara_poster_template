@@ -521,11 +521,14 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
         row1_count = math.ceil(total_groups/2)
         rows_groups = [ordered_groups[:row1_count], ordered_groups[row1_count:]]
 
-    def draw_group_row(row_groups: List[List[dict]], start_y: int) -> int:
+    # Determine max columns to standardize cell width across rows
+    max_cols_in_founder_rows = max(len(rg) for rg in rows_groups) if rows_groups and any(rows_groups) else 1
+
+    def draw_group_row(row_groups: List[List[dict]], start_y: int, max_cols: int) -> int:
         if not row_groups: return 0
         cols = len(row_groups)
-        total_gutter = (cols-1)*gutter_x
-        cell_w = (page_w - 2*margin - total_gutter)//max(1,cols)
+        total_gutter_for_max = (max_cols-1)*gutter_x
+        cell_w = (page_w - 2*margin - total_gutter_for_max)//max(1,max_cols)
 
         def draw_cell(x:int, y0:int, img_path:str, caption:str, magnification:float=1.0, measure_only:bool=False) -> int:
             img_w_max = int(cell_w * magnification)
@@ -585,7 +588,10 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
             col_heights.append(acc)
         row_h = max(col_heights) if col_heights else 0
 
-        draw_x = margin
+        # Center the row if it has fewer columns than the max
+        row_width = cols * cell_w + (cols - 1) * gutter_x
+        draw_x = margin + ( (page_w - 2*margin) - row_width ) // 2
+
         for col_idx, grp in enumerate(row_groups):
             y_cursor = start_y + (row_h - col_heights[col_idx])//2
             for item in grp:
@@ -598,7 +604,7 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
 
     for row_groups in rows_groups:
         if not row_groups: continue
-        used_h = draw_group_row(row_groups, y)
+        used_h = draw_group_row(row_groups, y, max_cols=max_cols_in_founder_rows)
         y += used_h + row_gap
 
     # Parakāla grid
@@ -658,9 +664,14 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
         for it in parakala_data[idx: idx+num_cols]:
             code = f"{it['id']:02d}00"
             row_items.append((p_map.get(code, ""), it['caption']))
+
+        # Center the row if it has fewer items than num_cols
+        row_width = len(row_items) * cell_w + (len(row_items) - 1) * gutter_x
+        start_x = margin + ( (page_w - 2*margin) - row_width ) // 2
+
         row_h = 0
         for col, (p,cap) in enumerate(row_items):
-            x = x0 + col*(cell_w+gutter_x)
+            x = start_x + col*(cell_w+gutter_x)
             used = draw_cell_grid(x, y, p, cap)
             row_h = max(row_h, used)
         y += row_h + row_gap
