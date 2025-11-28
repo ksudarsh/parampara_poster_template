@@ -772,23 +772,58 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
 
 # ---------- Main ----------
 def main():
+    # --- User Input ---
+    size_choice = input("Enter poster size (A1 or A2) [default: A2]: ").strip().upper() or "A2"
+    if size_choice not in ["A1", "A2"]:
+        print(f"Invalid size '{size_choice}'. Defaulting to A2.")
+        size_choice = "A2"
+
+    format_choice = input("Enter output format (PDF or PNG) [default: PDF]: ").strip().upper() or "PDF"
+    if format_choice not in ["PDF", "PNG"]:
+        print(f"Invalid format '{format_choice}'. Defaulting to PDF.")
+        format_choice = "PDF"
+
+    print(f"\n>>> Generating {size_choice} poster as a {format_choice} file...")
+
+    # --- Size and Layout Configuration ---
+    if size_choice == "A1":
+        # A1 @ 300 DPI: 7016 x 9921 px
+        page_w, page_h = 7016, 9921
+        margin, num_cols, gutter_x, row_gap = 120, 7, 40, 45
+        title_font, subtitle_font, caption_font, footer_font = 240, 88, 56, 70
+        section2_title_size, section2_sub_size = 160, 82
+    else: # A2 (default)
+        # A2 @ 300 DPI: 4961 x 7016 px
+        page_w, page_h = 4961, 7016
+        margin, num_cols, gutter_x, row_gap = 90, 6, 30, 34
+        title_font, subtitle_font, caption_font, footer_font = 180, 66, 42, 52
+        section2_title_size, section2_sub_size = 120, 62
+
     final = render_with_auto_fit(
-        page_w=4961, page_h=7016,     # A2 @ ~300dpi
-        margin=90, num_cols=6, gutter_x=30, row_gap=34,
-        title_font=180, subtitle_font=66, caption_font=42, footer_font=52,
+        page_w=page_w, page_h=page_h,
+        margin=margin, num_cols=num_cols, gutter_x=gutter_x, row_gap=row_gap,
+        title_font=title_font, subtitle_font=subtitle_font, caption_font=caption_font, footer_font=footer_font,
         img_scale=0.68, section_gap_extra=90,
-        section2_title_size=120, section2_sub_size=62,
+        section2_title_size=section2_title_size, section2_sub_size=section2_sub_size,
         banner_max_height_fraction=0.05,
         parchment_brightness=PARCHMENT_BRIGHTNESS, parchment_mode=PARCHMENT_MODE,
         featured_acharya_mode=FEATURED_ACHARYA_MODE
     )
+
     if final is None:
         print("Render failed."); return
-    final.save(OUT_A2, quality=95)
-    print("Saved:", OUT_A2)
-    pdf_path = OUT_A2.replace(".png",".pdf")
-    final.save(pdf_path, "PDF", resolution=300.0, quality=95)
-    print("Saved:", pdf_path)
+
+    # --- Save Output ---
+    base_name = f"Sri_Parakala_Matham_Guru_Parampara_GRID_{size_choice}"
+    if format_choice == "PDF":
+        output_path = os.path.join(HERE, f"{base_name}.pdf")
+        final.save(output_path, "PDF", resolution=300.0, quality=95)
+    else: # PNG
+        output_path = os.path.join(HERE, f"{base_name}.png")
+        final.save(output_path, quality=95)
+
+    print("\nSuccess! Saved poster to:")
+    print(output_path)
 
 if __name__ == "__main__":
     main()
