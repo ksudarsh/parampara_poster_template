@@ -48,7 +48,7 @@ SHADOW_DIRECTION = "NW"  # NW, NE, SW, SE, CE
 IMAGE_SHADOW_STRENGTH = 6
 IMAGE_SHADOW_BLUR     = 8
 
-MAGNIFY_FACTOR        = 1.25  # +10% for 'M' founders
+MAGNIFY_FACTOR        = 1.50  # +10% for 'M' founders
 FOUNDERS_ROWS         = 2
 OVERLAY_CORNERS       = []
 PARCHMENT_MODE        = "stretch"
