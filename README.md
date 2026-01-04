@@ -3,13 +3,12 @@
 Generate high-resolution A1/A2 posters for the Sri Parakala Matham guru parampara using the provided Excel captions and portrait images.
 
 ## What you need
-- Python 3.9–3.12 installed on this computer
+- Python 3.9-3.12 installed (Windows, macOS, Ubuntu)
 - Git (to clone the repo)
-- [Poetry](https://python-poetry.org/) 1.8+ (for dependency and venv management)
-- Repo assets present locally: `acharyan_captions.xlsx`, `assets/` (backgrounds, fonts, signature), and your `images/` directory with portraits
+- Repo assets present locally: `acharyan_captiona_english.xlsx` (or other `acharyan_captiona_<lang>.xlsx` files), `assets/` (backgrounds, fonts, signature), and your `images/` directory with portraits
 
-## Clone and install on this computer
-1) Open PowerShell and move to the folder where you want the project (for example `E:\CODING\POSTER`):
+## Clone the repo
+1) Open your terminal/PowerShell and move to the folder where you want the project (for example `E:\CODING\POSTER` or `~/code`):
    ```sh
    cd E:\CODING\POSTER
    ```
@@ -18,18 +17,25 @@ Generate high-resolution A1/A2 posters for the Sri Parakala Matham guru parampar
    git clone <repo-url>
    cd parampara_poster_template
    ```
-3) Install Poetry if you do not already have it:
-   ```sh
-   pip install poetry
-   ```
-4) Install project dependencies inside the Poetry environment:
-   ```sh
-   poetry install
-   ```
-   This creates an isolated venv with Pillow, pandas, openpyxl, and numpy.
+
+## Install dependencies with pip (default)
+```sh
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+## Install dependencies with conda/Anaconda (optional)
+```sh
+# create an env (choose Python 3.9–3.12)
+conda create -n parampara-poster python=3.11 -y
+conda activate parampara-poster
+# install deps via pip inside the env
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
 
 ## Prepare your data
-- Ensure `acharyan_captions.xlsx` is present and up to date (sheets: `Founders_Early_Acharyas` and `acharyan_captions`).
+- Ensure your captions workbook is present: `acharyan_captiona_english.xlsx` (default) or language-specific files like `acharyan_captiona_kannada.xlsx`, etc. Sheets should include `Banner_Text` (M1–M5), `Founders_Early_Acharyas`, and `acharyan_captions`.
 - Place portrait files in `images/`.
 - File name expectations:
   - Founders/early acharyas: filenames containing `F00`, `F01`, `F02`, ... (case-insensitive) map to IDs in the Excel sheet.
@@ -37,17 +43,18 @@ Generate high-resolution A1/A2 posters for the Sri Parakala Matham guru parampar
   - Accepted extensions: `.png`, `.jpg`, `.jpeg`.
 
 ## Run the generator
-Execute the script through Poetry so it uses the venv:
+From the project folder:
 ```sh
-poetry run python generate_parampara_poster.py
+python generate_parampara_poster.py
 ```
 You will be prompted for:
+- Language: English (default), Kannada, Telugu, Tamil, or Sanskrit (picks the corresponding `acharyan_captiona_<lang>.xlsx` if present)
 - Poster size: `A1` (7016x9921 @ 300 DPI) or `A2` (4961x7016 @ 300 DPI)
 - Output format: `PDF` or `PNG`
 
 Outputs are written beside the script as `Sri_Parakala_Matham_Guru_Parampara_GRID_<SIZE>.<ext>`.
 
 ## Notes
-- Fonts are loaded from `assets/fonts/` when present; otherwise common system serif fonts are used.
+- Fonts are chosen per language. If you have language-specific Noto fonts, place them under `assets/fonts/` (e.g., NotoSerifKannada, NotoSerifTelugu, NotoSerifTamil, NotoSerifDevanagari) for best rendering; system fallbacks are used if not found.
 - The script auto-adjusts image scale to fit content above the footer.
-- If you want pinned versions, run `poetry lock` to generate `poetry.lock` and commit it.
+- `pyproject.toml` remains for reference; installation uses `requirements.txt`.
