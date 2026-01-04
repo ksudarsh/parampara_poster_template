@@ -27,12 +27,20 @@ except Exception:
 
 print(">>> Python:", sys.executable)
 
-# ---------- Text ----------
-TITLE_TEXT      = "Sri Parakala Matham Guru Parampara"
-SUBTITLE_TEXT   = "Established by Sri Vedanta Desika in 1359 CE"
-FOOTER_TEXT     = "Sri Parakala Swamy Mutt – The Eternal Lineage of Sri Vedanta Desika"
-SECTION2_TITLE  = "Sri Parakāla Āchāryas"
-SECTION2_SUB    = "Lineage of Brahmatantra Swatantra Swamis"
+# ---------- Text (M1-M5 defaults; overridden by Banner_Text in XLSX) ----------
+DEFAULT_BANNER_MESSAGES = {
+    "M1": "Sri Parakala Matham Guru Parampara",
+    "M2": "Established by Sri Vedanta Desika in 1359 CE",
+    "M3": "Sri Parakala Acharyas",
+    "M4": "Lineage of Brahmatantra Swatantra Swamis",
+    "M5": "Sri Parakala Swamy Mutt - The Eternal Lineage of Sri Vedanta Desika",
+}
+
+TITLE_TEXT      = DEFAULT_BANNER_MESSAGES["M1"]  # M1
+SUBTITLE_TEXT   = DEFAULT_BANNER_MESSAGES["M2"]  # M2
+SECTION2_TITLE  = DEFAULT_BANNER_MESSAGES["M3"]  # M3
+SECTION2_SUB    = DEFAULT_BANNER_MESSAGES["M4"]  # M4
+FOOTER_TEXT     = DEFAULT_BANNER_MESSAGES["M5"]  # M5
 
 # ---------- Style / Flags ----------
 TITLE_FONT_WEIGHT    = "Bold"
@@ -66,7 +74,13 @@ HERE        = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR  = os.path.join(HERE, "assets")
 FONTS_DIR   = os.path.join(ASSETS_DIR, "fonts")
 IMAGES_DIR  = os.path.join(HERE, "images")
-XLSX_PATH   = os.path.join(HERE, "acharyan_captions.xlsx")
+DEFAULT_XLSX_CANDIDATES = [
+    os.path.join(HERE, "acharyan_captiona_english.xlsx"),
+    os.path.join(HERE, "acharyan_captions_english.xlsx"),
+    os.path.join(HERE, "acharyan_captiona.xlsx"),
+    os.path.join(HERE, "acharyan_captions.xlsx"),
+]
+XLSX_PATH   = next((p for p in DEFAULT_XLSX_CANDIDATES if os.path.isfile(p)), DEFAULT_XLSX_CANDIDATES[0])
 
 PARCHMENT_PATH    = os.path.join(ASSETS_DIR, "parchment_bg.jpg")
 MANDALA_TILE_PATH = os.path.join(ASSETS_DIR, "mandala_tile.png")
@@ -74,9 +88,34 @@ SIGNATURE_PATH    = os.path.join(ASSETS_DIR, "signature.png")
 OUT_A2            = os.path.join(HERE, "Sri_Parakala_Matham_Guru_Parampara_GRID_A2.png")
 
 # ---------- Fonts ----------
+SELECTED_LANGUAGE = "english"
+
+LANGUAGE_FONT_PREFS = {
+    "english": {
+        "normal": ["GentiumPlus-Regular.ttf","GentiumBookPlus-Regular.ttf","NotoSerif-Regular.ttf","DejaVuSerif.ttf"],
+        "bold":   ["GentiumPlus-Bold.ttf","GentiumBookPlus-Bold.ttf","NotoSerif-Bold.ttf","DejaVuSerif-Bold.ttf"],
+    },
+    "kannada": {
+        "normal": ["NotoSerifKannada-Regular.ttf","NotoSansKannada-Regular.ttf","Tunga.ttf","Nirmala.ttf"],
+        "bold":   ["NotoSerifKannada-Bold.ttf","NotoSansKannada-Bold.ttf","Tunga.ttf","Nirmala.ttf"],
+    },
+    "telugu": {
+        "normal": ["NotoSerifTelugu-Regular.ttf","NotoSansTelugu-Regular.ttf","Gautami.ttf","Nirmala.ttf"],
+        "bold":   ["NotoSerifTelugu-Bold.ttf","NotoSansTelugu-Bold.ttf","Gautami.ttf","Nirmala.ttf"],
+    },
+    "tamil": {
+        "normal": ["NotoSerifTamil-Regular.ttf","NotoSansTamil-Regular.ttf","Latha.ttf","Nirmala.ttf"],
+        "bold":   ["NotoSerifTamil-Bold.ttf","NotoSansTamil-Bold.ttf","Latha.ttf","Nirmala.ttf"],
+    },
+    "sanskrit": {
+        "normal": ["NotoSerifDevanagari-Regular.ttf","NotoSansDevanagari-Regular.ttf","Nirmala.ttf","Mangal.ttf"],
+        "bold":   ["NotoSerifDevanagari-Bold.ttf","NotoSansDevanagari-Bold.ttf","Nirmala.ttf","Mangal.ttf"],
+    },
+}
+
 _FONT_USED = None
 _PRINTED_FONT = False
-_FONT_CACHE: Dict[Tuple[int,str], ImageFont.FreeTypeFont] = {}
+_FONT_CACHE: Dict[Tuple[int,str,str], ImageFont.FreeTypeFont] = {}
 
 def _find_fonts_recursively(base_dir):
     if not os.path.isdir(base_dir): return []
@@ -98,14 +137,16 @@ def _try_load_font(size: int, candidates: List[str]) -> Optional[ImageFont.FreeT
     return None
 
 def load_font(size: int, weight: str = 'normal') -> ImageFont.FreeTypeFont:
-    key = (size, weight.lower())
+    lang = (SELECTED_LANGUAGE or "english").lower()
+    key = (size, weight.lower(), lang)
     if key in _FONT_CACHE:
         return _FONT_CACHE[key]
-    weight_map = {
-        'normal': ["GentiumPlus-Regular.ttf","GentiumBookPlus-Regular.ttf","NotoSerif-Regular.ttf","DejaVuSerif.ttf"],
-        'bold'  : ["GentiumPlus-Bold.ttf","GentiumBookPlus-Bold.ttf","NotoSerif-Bold.ttf","DejaVuSerif-Bold.ttf"],
-    }
-    pref_names = [n.lower() for n in weight_map.get(weight.lower(), weight_map['normal'])]
+
+    lang_map = LANGUAGE_FONT_PREFS.get(lang, LANGUAGE_FONT_PREFS["english"])
+    pref_names = [n.lower() for n in lang_map.get(weight.lower(), lang_map.get('normal', []))]
+    if not pref_names:
+        pref_names = [n.lower() for n in LANGUAGE_FONT_PREFS["english"].get(weight.lower(), LANGUAGE_FONT_PREFS["english"]["normal"])]
+
     found = _find_fonts_recursively(FONTS_DIR)
     preferred = [p for p in found if os.path.basename(p).lower() in pref_names]
     preferred.sort(key=lambda p: pref_names.index(os.path.basename(p).lower()) if os.path.basename(p).lower() in pref_names else 999)
@@ -113,13 +154,29 @@ def load_font(size: int, weight: str = 'normal') -> ImageFont.FreeTypeFont:
     f = _try_load_font(size, preferred + others)
     if not f:
         candidates = [
+            # English / Latin
             r"C:\Windows\Fonts\GentiumPlus-Regular.ttf", r"C:\Windows\Fonts\GentiumPlus-Bold.ttf",
             r"C:\Windows\Fonts\NotoSerif-Regular.ttf",   r"C:\Windows\Fonts\NotoSerif-Bold.ttf",
-            r"C:\Windows\Fonts\Cambria.ttc", r"C:\Windows\Fonts\times.ttf", r"C:\Windows\Fonts\Nirmala.ttf",
+            r"C:\Windows\Fonts\Cambria.ttc", r"C:\Windows\Fonts\times.ttf",
+            # Indic families
+            r"C:\Windows\Fonts\NotoSerifDevanagari-Regular.ttf", r"C:\Windows\Fonts\NotoSerifDevanagari-Bold.ttf",
+            r"C:\Windows\Fonts\NotoSerifKannada-Regular.ttf",    r"C:\Windows\Fonts\NotoSerifKannada-Bold.ttf",
+            r"C:\Windows\Fonts\NotoSerifTelugu-Regular.ttf",     r"C:\Windows\Fonts\NotoSerifTelugu-Bold.ttf",
+            r"C:\Windows\Fonts\NotoSerifTamil-Regular.ttf",      r"C:\Windows\Fonts\NotoSerifTamil-Bold.ttf",
+            r"C:\Windows\Fonts\NotoSansDevanagari-Regular.ttf",  r"C:\Windows\Fonts\NotoSansDevanagari-Bold.ttf",
+            r"C:\Windows\Fonts\NotoSansKannada-Regular.ttf",     r"C:\Windows\Fonts\NotoSansKannada-Bold.ttf",
+            r"C:\Windows\Fonts\NotoSansTelugu-Regular.ttf",      r"C:\Windows\Fonts\NotoSansTelugu-Bold.ttf",
+            r"C:\Windows\Fonts\NotoSansTamil-Regular.ttf",       r"C:\Windows\Fonts\NotoSansTamil-Bold.ttf",
+            r"C:\Windows\Fonts\Tunga.ttf", r"C:\Windows\Fonts\Gautami.ttf", r"C:\Windows\Fonts\Latha.ttf",
+            r"C:\Windows\Fonts\Mangal.ttf", r"C:\Windows\Fonts\Nirmala.ttf",
             "/Library/Fonts/GentiumPlus-Regular.ttf", "/Library/Fonts/GentiumPlus-Bold.ttf",
             "/Library/Fonts/NotoSerif-Regular.ttf",   "/Library/Fonts/NotoSerif-Bold.ttf",
+            "/Library/Fonts/NotoSerifDevanagari-Regular.ttf", "/Library/Fonts/NotoSerifDevanagari-Bold.ttf",
+            "/Library/Fonts/NotoSerifTamil-Regular.ttf", "/Library/Fonts/NotoSerifTamil-Bold.ttf",
             "/usr/share/fonts/truetype/gentiumplus/GentiumPlus-Regular.ttf",
             "/usr/share/fonts/truetype/noto/NotoSerif-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSerifDevanagari-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSerifTamil-Regular.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
         ]
         f = _try_load_font(size, candidates) or ImageFont.load_default()
@@ -299,12 +356,90 @@ def normalize_ascii_lower(text: Optional[str]) -> str:
     stripped = "".join(ch for ch in normalized if not unicodedata.combining(ch))
     return stripped.lower()
 
+# ---------- Language + banner helpers ----------
+LANGUAGE_ALIASES = {
+    "": "english",
+    "english": "english",
+    "en": "english",
+    "kannada": "kannada",
+    "kn": "kannada",
+    "telugu": "telugu",
+    "te": "telugu",
+    "tamil": "tamil",
+    "ta": "tamil",
+    "sanskrit": "sanskrit",
+    "sa": "sanskrit",
+}
+
+def resolve_language_choice(raw: str) -> str:
+    key = normalize_ascii_lower(raw or "").replace(" ", "")
+    return LANGUAGE_ALIASES.get(key, "english")
+
+def resolve_xlsx_path(language_choice: str) -> str:
+    lang = normalize_ascii_lower(language_choice).replace(" ", "")
+    candidates = [
+        os.path.join(HERE, f"acharyan_captiona_{lang}.xlsx"),
+        os.path.join(HERE, f"acharyan_captions_{lang}.xlsx"),
+    ]
+    if lang == "english":
+        candidates += DEFAULT_XLSX_CANDIDATES
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    raise FileNotFoundError(
+        f"No spreadsheet found for language '{language_choice}'. Tried: {candidates}"
+    )
+
+def load_banner_messages(xlsx_path: str, defaults: Dict[str,str]) -> Dict[str,str]:
+    messages = dict(defaults)
+    try:
+        df = pd.read_excel(xlsx_path, sheet_name="Banner_Text", engine="openpyxl")
+    except Exception as e:
+        print(f">>> WARNING: Banner_Text missing or unreadable in {xlsx_path}: {e}")
+        return messages
+
+    # Detect columns by header names (accent/space-insensitive)
+    id_col = None
+    msg_col = None
+    for col in df.columns:
+        norm = normalize_ascii_lower(col).replace(" ", "")
+        if id_col is None and (norm.startswith("messageid") or norm == "id"):
+            id_col = col
+            continue
+        if msg_col is None and (norm == "message" or norm == "text" or (norm.startswith("message") and not norm.startswith("messageid"))):
+            msg_col = col
+    if id_col is None or msg_col is None:
+        print(f">>> WARNING: Banner_Text sheet missing 'Message ID'/'Message' headers in {xlsx_path}")
+        return messages
+
+    for _, row in df.iterrows():
+        mid_raw = row.get(id_col)
+        msg_raw = row.get(msg_col)
+        if pd.isna(mid_raw) or pd.isna(msg_raw):
+            continue
+        mid = str(mid_raw).strip().upper()
+        msg = str(msg_raw).strip()
+        if not mid or not msg:
+            continue
+        if mid in messages:
+            messages[mid] = msg
+    return messages
+
+def apply_banner_messages(messages: Dict[str,str]):
+    global TITLE_TEXT, SUBTITLE_TEXT, SECTION2_TITLE, SECTION2_SUB, FOOTER_TEXT
+    TITLE_TEXT     = messages.get("M1", DEFAULT_BANNER_MESSAGES["M1"])
+    SUBTITLE_TEXT  = messages.get("M2", DEFAULT_BANNER_MESSAGES["M2"])
+    SECTION2_TITLE = messages.get("M3", DEFAULT_BANNER_MESSAGES["M3"])
+    SECTION2_SUB   = messages.get("M4", DEFAULT_BANNER_MESSAGES["M4"])
+    FOOTER_TEXT    = messages.get("M5", DEFAULT_BANNER_MESSAGES["M5"])
+
 # ---------- Data ----------
-def read_xlsx():
-    if not os.path.isfile(XLSX_PATH):
-        raise FileNotFoundError(f"Data file not found: {XLSX_PATH}")
-    df_f = pd.read_excel(XLSX_PATH, sheet_name="Founders_Early_Acharyas", engine="openpyxl", header=None)
-    df_p = pd.read_excel(XLSX_PATH, sheet_name="acharyan_captions",   engine="openpyxl", header=None)
+def read_xlsx(xlsx_path: Optional[str] = None):
+    xlsx_file = xlsx_path or XLSX_PATH
+    if not os.path.isfile(xlsx_file):
+        raise FileNotFoundError(f"Data file not found: {xlsx_file}")
+    df_f = pd.read_excel(xlsx_file, sheet_name="Founders_Early_Acharyas", engine="openpyxl", header=None)
+    df_p = pd.read_excel(xlsx_file, sheet_name="acharyan_captions",   engine="openpyxl", header=None)
 
     # Drop spacer columns that are entirely blank so indexes stay consistent
     df_f = df_f.dropna(axis=1, how='all')
@@ -433,10 +568,11 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
                    banner_max_height_fraction:float, parchment_brightness:float=1.0,
                    parchment_mode:str='stretch', featured_acharya_mode:bool=True,
                    founders_data: Optional[List[dict]] = None, parakala_data: Optional[List[dict]] = None,
-                   founders_map: Optional[Dict[str,str]] = None, parakala_map: Optional[Dict[str,str]] = None
+                   founders_map: Optional[Dict[str,str]] = None, parakala_map: Optional[Dict[str,str]] = None,
+                   xlsx_path: Optional[str] = None
                    ) -> Tuple[Image.Image, int]:
     if founders_data is None or parakala_data is None:
-        founders_data, parakala_data = read_xlsx()
+        founders_data, parakala_data = read_xlsx(xlsx_path)
     if founders_map is None or parakala_map is None:
         founders_map, parakala_map = index_images(IMAGES_DIR)
     f_map, p_map = founders_map, parakala_map
@@ -722,8 +858,8 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
                          title_font=180, subtitle_font=66, caption_font=42, footer_font=52,
                          img_scale=0.68, section_gap_extra=90, section2_title_size=120, section2_sub_size=62,
                          banner_max_height_fraction=0.05, parchment_brightness=1.0, parchment_mode='stretch',
-                         featured_acharya_mode=True) -> Optional[Image.Image]:
-    founders_data, parakala_data = read_xlsx()
+                         featured_acharya_mode=True, xlsx_path: Optional[str] = None) -> Optional[Image.Image]:
+    founders_data, parakala_data = read_xlsx(xlsx_path)
     f_map, p_map = index_images(IMAGES_DIR)
 
     # Measure footer band
@@ -747,7 +883,7 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
                               scale,section_gap_extra,section2_title_size,section2_sub_size,
                               banner_max_height_fraction,parchment_brightness,parchment_mode,featured_acharya_mode,
                               founders_data=founders_data, parakala_data=parakala_data,
-                              founders_map=f_map, parakala_map=p_map)
+                              founders_map=f_map, parakala_map=p_map, xlsx_path=xlsx_path)
 
     # First measure
     canvas, end_y = measure(start_scale)
@@ -784,6 +920,24 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
 # ---------- Main ----------
 def main():
     # --- User Input ---
+    language_input = input("Enter language (English/Kannada/Telugu/Tamil/Sanskrit) [default: English]: ").strip()
+    language_choice = resolve_language_choice(language_input)
+    try:
+        xlsx_path = resolve_xlsx_path(language_choice)
+    except FileNotFoundError as e:
+        print(f">>> WARNING: {e}")
+        language_choice = "english"
+        try:
+            xlsx_path = resolve_xlsx_path(language_choice)
+        except FileNotFoundError as e2:
+            print(f">>> ERROR: English spreadsheet not found either: {e2}")
+            return
+    banner_messages = load_banner_messages(xlsx_path, DEFAULT_BANNER_MESSAGES)
+    apply_banner_messages(banner_messages)
+    global XLSX_PATH, SELECTED_LANGUAGE
+    XLSX_PATH = xlsx_path
+    SELECTED_LANGUAGE = language_choice
+
     size_choice = input("Enter poster size (A1 or A2) [default: A2]: ").strip().upper() or "A2"
     if size_choice not in ["A1", "A2"]:
         print(f"Invalid size '{size_choice}'. Defaulting to A2.")
@@ -795,6 +949,7 @@ def main():
         format_choice = "PDF"
 
     print(f"\n>>> Generating {size_choice} poster as a {format_choice} file...")
+    print(f">>> Language: {language_choice.title()} | Spreadsheet: {os.path.basename(xlsx_path)}")
 
     # --- Size and Layout Configuration ---
     if size_choice == "A1":
@@ -818,7 +973,8 @@ def main():
         section2_title_size=section2_title_size, section2_sub_size=section2_sub_size,
         banner_max_height_fraction=0.05,
         parchment_brightness=PARCHMENT_BRIGHTNESS, parchment_mode=PARCHMENT_MODE,
-        featured_acharya_mode=FEATURED_ACHARYA_MODE
+        featured_acharya_mode=FEATURED_ACHARYA_MODE,
+        xlsx_path=xlsx_path
     )
 
     if final is None:
