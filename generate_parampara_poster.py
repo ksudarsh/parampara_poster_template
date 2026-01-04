@@ -92,24 +92,24 @@ SELECTED_LANGUAGE = "english"
 
 LANGUAGE_FONT_PREFS = {
     "english": {
-        "normal": ["GentiumPlus-Regular.ttf","GentiumBookPlus-Regular.ttf","NotoSerif-Regular.ttf","DejaVuSerif.ttf"],
-        "bold":   ["GentiumPlus-Bold.ttf","GentiumBookPlus-Bold.ttf","NotoSerif-Bold.ttf","DejaVuSerif-Bold.ttf"],
+        "normal": ["NotoSerif-VariableFont_wght.ttf","GentiumPlus-Regular.ttf","GentiumBookPlus-Regular.ttf","NotoSerif-Regular.ttf","DejaVuSerif.ttf"],
+        "bold":   ["NotoSerif-VariableFont_wght.ttf","GentiumPlus-Bold.ttf","GentiumBookPlus-Bold.ttf","NotoSerif-Bold.ttf","DejaVuSerif-Bold.ttf"],
     },
     "kannada": {
-        "normal": ["NotoSerifKannada-Regular.ttf","NotoSansKannada-Regular.ttf","Tunga.ttf","Nirmala.ttf"],
-        "bold":   ["NotoSerifKannada-Bold.ttf","NotoSansKannada-Bold.ttf","Tunga.ttf","Nirmala.ttf"],
+        "normal": ["NotoSerifKannada-VariableFont_wght.ttf","NotoSerifKannada-Regular.ttf","NotoSansKannada-Regular.ttf","Tunga.ttf","Nirmala.ttf"],
+        "bold":   ["NotoSerifKannada-VariableFont_wght.ttf","NotoSerifKannada-Bold.ttf","NotoSansKannada-Bold.ttf","Tunga.ttf","Nirmala.ttf"],
     },
     "telugu": {
-        "normal": ["NotoSerifTelugu-Regular.ttf","NotoSansTelugu-Regular.ttf","Gautami.ttf","Nirmala.ttf"],
-        "bold":   ["NotoSerifTelugu-Bold.ttf","NotoSansTelugu-Bold.ttf","Gautami.ttf","Nirmala.ttf"],
+        "normal": ["NotoSerifTelugu-VariableFont_wght.ttf","NotoSerifTelugu-Regular.ttf","NotoSansTelugu-Regular.ttf","Gautami.ttf","Nirmala.ttf"],
+        "bold":   ["NotoSerifTelugu-VariableFont_wght.ttf","NotoSerifTelugu-Bold.ttf","NotoSansTelugu-Bold.ttf","Gautami.ttf","Nirmala.ttf"],
     },
     "tamil": {
-        "normal": ["NotoSerifTamil-Regular.ttf","NotoSansTamil-Regular.ttf","Latha.ttf","Nirmala.ttf"],
-        "bold":   ["NotoSerifTamil-Bold.ttf","NotoSansTamil-Bold.ttf","Latha.ttf","Nirmala.ttf"],
+        "normal": ["NotoSerifTamil-VariableFont_wght.ttf","NotoSerifTamil-Regular.ttf","NotoSansTamil-Regular.ttf","Latha.ttf","Nirmala.ttf"],
+        "bold":   ["NotoSerifTamil-VariableFont_wght.ttf","NotoSerifTamil-Bold.ttf","NotoSansTamil-Bold.ttf","Latha.ttf","Nirmala.ttf"],
     },
     "sanskrit": {
-        "normal": ["NotoSerifDevanagari-Regular.ttf","NotoSansDevanagari-Regular.ttf","Nirmala.ttf","Mangal.ttf"],
-        "bold":   ["NotoSerifDevanagari-Bold.ttf","NotoSansDevanagari-Bold.ttf","Nirmala.ttf","Mangal.ttf"],
+        "normal": ["NotoSerifDevanagari-VariableFont_wght.ttf","NotoSerifDevanagari-Regular.ttf","NotoSansDevanagari-Regular.ttf","Nirmala.ttf","Mangal.ttf"],
+        "bold":   ["NotoSerifDevanagari-VariableFont_wght.ttf","NotoSerifDevanagari-Bold.ttf","NotoSansDevanagari-Bold.ttf","Nirmala.ttf","Mangal.ttf"],
     },
 }
 
@@ -135,6 +135,35 @@ def _try_load_font(size: int, candidates: List[str]) -> Optional[ImageFont.FreeT
             except Exception:
                 pass
     return None
+
+def _apply_wght_variation_if_available(font: ImageFont.FreeTypeFont, weight: str) -> ImageFont.FreeTypeFont:
+    """
+    If the font is variable with a 'wght' axis, set it to 400/700 for normal/bold.
+    Falls back silently if variation axes are unsupported.
+    """
+    try:
+        getter = getattr(font, "get_variation_axes", None)
+        setter = getattr(font, "set_variation_by_axes", None)
+        if not getter or not setter:
+            return font
+        axes = getter() or []
+        wght_idx = None
+        values = []
+        for idx, ax in enumerate(axes):
+            tag = str(ax.get("tag") or ax.get("name") or "").lower()
+            if tag == "wght":
+                wght_idx = idx
+            values.append(float(ax.get("defaultValue", ax.get("minValue", 0))))
+        if wght_idx is None:
+            return font
+        lo = float(axes[wght_idx].get("minValue", 0))
+        hi = float(axes[wght_idx].get("maxValue", 1000))
+        target = 700.0 if weight.lower() == "bold" else 400.0
+        values[wght_idx] = min(hi, max(lo, target))
+        setter(values)
+    except Exception:
+        return font
+    return font
 
 def load_font(size: int, weight: str = 'normal') -> ImageFont.FreeTypeFont:
     lang = (SELECTED_LANGUAGE or "english").lower()
@@ -180,6 +209,7 @@ def load_font(size: int, weight: str = 'normal') -> ImageFont.FreeTypeFont:
             "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
         ]
         f = _try_load_font(size, candidates) or ImageFont.load_default()
+    f = _apply_wght_variation_if_available(f, weight)
     _FONT_CACHE[key] = f
     return f
 
