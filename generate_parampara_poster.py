@@ -224,6 +224,57 @@ def _text_size(d: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont):
     bb = d.textbbox((0,0), text, font=font)
     return bb[2]-bb[0], bb[3]-bb[1]
 
+def wrap_text_to_width(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> List[str]:
+    """Word-wrap with a fallback to character splits if a single word exceeds max_width."""
+    if max_width <= 0:
+        return [text] if text else []
+    dummy = ImageDraw.Draw(Image.new("RGBA",(1,1)))
+    def split_long_word(word: str) -> List[str]:
+        parts=[]; cur=""
+        for ch in word:
+            test = cur + ch
+            w,_ = _text_size(dummy, test, font)
+            if w <= max_width:
+                cur = test
+            else:
+                if cur:
+                    parts.append(cur)
+                    cur = ch
+                else:
+                    parts.append(ch)  # single glyph too wide; force break
+        if cur: parts.append(cur)
+        return parts
+
+    words = text.split()
+    if not words:
+        return []
+    lines=[]
+    line=""
+    for word in words:
+        candidate = (line + " " + word).strip() if line else word
+        w,_ = _text_size(dummy, candidate, font)
+        if w <= max_width:
+            line = candidate
+            continue
+        # current line can't fit the new word; push current if exists
+        if line:
+            lines.append(line)
+            line = ""
+        # word itself too long? split it
+        chunks = split_long_word(word)
+        for chunk in chunks:
+            w_chunk,_ = _text_size(dummy, chunk, font)
+            if not line:
+                line = chunk
+            elif _text_size(dummy, (line + " " + chunk).strip(), font)[0] <= max_width:
+                line = (line + " " + chunk).strip()
+            else:
+                lines.append(line)
+                line = chunk
+    if line:
+        lines.append(line)
+    return lines
+
 def _hex_to_rgb(h: str) -> Tuple[int,int,int]:
     h = h.lstrip('#'); return (int(h[0:2],16), int(h[2:4],16), int(h[4:6],16))
 
@@ -468,17 +519,82 @@ def read_xlsx(xlsx_path: Optional[str] = None):
     xlsx_file = xlsx_path or XLSX_PATH
     if not os.path.isfile(xlsx_file):
         raise FileNotFoundError(f"Data file not found: {xlsx_file}")
-    df_f = pd.read_excel(xlsx_file, sheet_name="Founders_Early_Acharyas", engine="openpyxl", header=None)
-    df_p = pd.read_excel(xlsx_file, sheet_name="acharyan_captions",   engine="openpyxl", header=None)
+
+    def pick_sheet(xl: pd.ExcelFile, candidates: List[str]) -> str:
+        """Pick the first matching sheet (case-insensitive, underscores/spaces ignored)."""
+        available = xl.sheet_names
+        norm_map = {}
+        for s in available:
+            key = s.replace("_", "").replace(" ", "").lower()
+            norm_map[key] = s
+        for cand in candidates:
+            key = cand.replace("_", "").replace(" ", "").lower()
+            if key in norm_map:
+                return norm_map[key]
+        # fallback to the first sheet
+        return available[0]
+
+    xl = pd.ExcelFile(xlsx_file, engine="openpyxl")
+    founders_sheet = pick_sheet(xl, ["Founders_Early_Acharyas", "Earlier_Acharyas", "Founders"])
+    parakala_sheet = pick_sheet(xl, ["acharyan_captions", "PLM acharyas", "Parakala", "PLM_acharyas"])
+    df_f = xl.parse(sheet_name=founders_sheet, header=None)
+    df_p = xl.parse(sheet_name=parakala_sheet, header=None)
 
     # Drop spacer columns that are entirely blank so indexes stay consistent
     df_f = df_f.dropna(axis=1, how='all')
     df_p = df_p.dropna(axis=1, how='all')
 
+    def _is_numeric(col, sample_size=12):
+        try:
+            sample = pd.to_numeric(col.dropna().astype(str).str.strip().head(sample_size), errors="coerce")
+            return sample.notna().mean() > 0.8
+        except Exception:
+            return False
+
+    # Heuristically detect founder columns (handles layouts where ID and caption swap columns)
     id_col = 0
     caption_col = 1 if df_f.shape[1] > 1 else 0
     group_col = 2 if df_f.shape[1] > 2 else None
     enhance_col = 3 if df_f.shape[1] > 3 else None
+
+    # Prefer column containing F-codes for IDs
+    fcode_cols = []
+    for c in range(df_f.shape[1]):
+        vals = df_f.iloc[:, c].dropna().astype(str).str.strip()
+        if vals.empty: continue
+        score = vals.head(12).str.match(r'^[Ff]\d+').mean()
+        if score > 0.5:
+            fcode_cols.append(c)
+    if fcode_cols:
+        id_col = fcode_cols[0]
+
+    # Choose caption column as the first non-ID, mostly non-numeric column with longest text
+    caption_candidates = []
+    for c in range(df_f.shape[1]):
+        if c == id_col: continue
+        vals = df_f.iloc[:, c].dropna().astype(str).str.strip()
+        if vals.empty: continue
+        num_ratio = _is_numeric(vals)
+        avg_len = vals.head(12).map(len).mean() if not vals.empty else 0
+        caption_candidates.append((num_ratio, -avg_len, c))
+    if caption_candidates:
+        caption_candidates.sort()
+        caption_col = caption_candidates[0][2]
+
+    # Group column: first non-ID/non-caption column that is mostly numeric
+    for c in range(df_f.shape[1]):
+        if c in (id_col, caption_col): continue
+        if _is_numeric(df_f.iloc[:, c]):
+            group_col = c
+            break
+
+    # Enhance column: any column with an 'M' flag
+    for c in range(df_f.shape[1]):
+        if c in (id_col, caption_col, group_col): continue
+        vals = df_f.iloc[:, c].dropna().astype(str).str.strip().str.upper().head(20)
+        if any(v == 'M' for v in vals):
+            enhance_col = c
+            break
 
     # Founders: optional header skip (accent-insensitive)
     first_val_f = ""
@@ -531,7 +647,9 @@ def read_xlsx(xlsx_path: Optional[str] = None):
     # Parak??la: optional header skip
     try: first_val_p = normalize_ascii_lower(df_p.iloc[0,0])
     except Exception: first_val_p = ""
-    if any(k in first_val_p for k in ("sl no","slno","id","no","s.no")):
+    try: first_cap_p = normalize_ascii_lower(df_p.iloc[0,1])
+    except Exception: first_cap_p = ""
+    if any(k in first_val_p for k in ("sl no","slno","id","no","s.no")) or any(k in first_cap_p for k in ("acharya","acharyas","mutt","matha","parakala")):
         df_p = df_p.iloc[1:].reset_index(drop=True)
 
     parakala = []
@@ -714,21 +832,16 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
                 canvas.alpha_composite(im_circ,(ix,y0))
 
             cap_font = load_font(caption_font)
-            words = caption.split(); lines=[]; line=""
-            max_text_w = cell_w - 6
+            max_text_w = int(cell_w * 0.9)
             measurer = ImageDraw.Draw(Image.new("RGBA",(1,1))) if measure_only else ImageDraw.Draw(canvas)
-            for tk in words:
-                test=(line+" "+tk).strip(); tw,_=_text_size(measurer, test, cap_font)
-                if tw<=max_text_w or not line: line=test
-                else: lines.append(line); line=tk
-            if line: lines.append(line)
+            lines = wrap_text_to_width(caption, cap_font, max_text_w)
             ty = y0 + h + 6
             if measure_only:
-                total_h = sum(_text_size(measurer, li, cap_font)[1] for li in lines) + (len(lines)-1)*3
+                total_h = sum(_text_size(measurer, li, cap_font)[1] for li in lines) + (len(lines)-1)*4
                 return (ty - y0) + total_h
             if lines:
                 max_lw = max(_text_size(measurer, li, cap_font)[0] for li in lines)
-                total_h = sum(_text_size(measurer, li, cap_font)[1] for li in lines) + (len(lines)-1)*3
+                total_h = sum(_text_size(measurer, li, cap_font)[1] for li in lines) + (len(lines)-1)*4
                 bg = canvas.crop((x+(cell_w-max_lw)//2, ty, x+(cell_w-max_lw)//2+max_lw, ty+total_h))
                 fg, sh_color_base = get_adaptive_colors(bg)
             else:
@@ -738,7 +851,7 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
                 lw,lh=_text_size(measurer, li, cap_font); tx=x+(cell_w-lw)//2
                 ImageDraw.Draw(canvas).text((tx+s_off[0], ty+s_off[1]), li, font=cap_font, fill=sh_color_base)
                 ImageDraw.Draw(canvas).text((tx,          ty          ), li, font=cap_font, fill=fg)
-                ty += lh + 3
+                ty += lh + 4
             print_font_choice_once()
             return ty - y0
 
@@ -799,17 +912,12 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
         canvas.alpha_composite(im_circ,(ix,y0))
 
         cap_font = load_font(caption_font)
-        words = caption.split(); lines=[]; line=""
-        max_text_w = cell_w - 6
-        for tk in words:
-            test=(line+" "+tk).strip(); tw,_=_text_size(ImageDraw.Draw(canvas),test,cap_font)
-            if tw<=max_text_w or not line: line=test
-            else: lines.append(line); line=tk
-        if line: lines.append(line)
+        max_text_w = int(cell_w * 0.9)
+        lines = wrap_text_to_width(caption, cap_font, max_text_w)
         ty = y0 + h + 6
         if lines:
             max_lw = max(_text_size(ImageDraw.Draw(canvas), li, cap_font)[0] for li in lines)
-            total_h = sum(_text_size(ImageDraw.Draw(canvas), li, cap_font)[1] for li in lines) + (len(lines)-1)*3
+            total_h = sum(_text_size(ImageDraw.Draw(canvas), li, cap_font)[1] for li in lines) + (len(lines)-1)*4
             bg = canvas.crop((x+(cell_w-max_lw)//2, ty, x+(cell_w-max_lw)//2+max_lw, ty+total_h))
             fg, sh_color_base = get_adaptive_colors(bg)
         else:
@@ -819,7 +927,7 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
             lw,lh=_text_size(ImageDraw.Draw(canvas), li, cap_font); tx=x+(cell_w-lw)//2
             ImageDraw.Draw(canvas).text((tx+s_off[0],ty+s_off[1]), li, font=cap_font, fill=sh_color_base)
             ImageDraw.Draw(canvas).text((tx,          ty          ), li, font=cap_font, fill=fg)
-            ty += lh + 3
+            ty += lh + 4
         print_font_choice_once()
         return ty - y0
 
