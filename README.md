@@ -24,9 +24,23 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
+### Ensure Pillow has RAQM shaping (Kannada/Telugu/Tamil/Devanagari)
+Complex scripts need Pillow built with RAQM (HarfBuzz + FriBidi). Check once:
+```sh
+python -c "from PIL import features; print('RAQM available:', features.check('raqm'))"
+```
+- If it prints `True`, you are set.
+- If it prints `False`:
+  - Ubuntu/macOS (pip): the official Pillow wheels usually include RAQM; try `python -m pip install --upgrade pillow` and recheck.
+  - Windows: pip wheels often lack RAQM. Use conda-forge which bundles it:
+    ```sh
+    conda install -c conda-forge "pillow>=10.2"
+    ```
+    If RAQM still shows `False`, prefer running the script on Ubuntu/WSL or macOS.
+
 ## Install dependencies with conda/Anaconda (optional)
 ```sh
-# create an env (choose Python 3.9–3.12)
+# create an env (choose Python 3.9-3.12)
 conda create -n parampara-poster python=3.11 -y
 conda activate parampara-poster
 # install deps via pip inside the env
@@ -56,5 +70,6 @@ Outputs are written beside the script as `Sri_Parakala_Matham_Guru_Parampara_GRI
 
 ## Notes
 - Fonts are chosen per language. If you have language-specific Noto fonts, place them under `assets/fonts/` (e.g., NotoSerifKannada, NotoSerifTelugu, NotoSerifTamil, NotoSerifDevanagari) for best rendering; system fallbacks are used if not found.
+- Variable fonts (e.g., `...-VariableFont_wght.ttf`) are supported; the script requests weight axes when available.
 - The script auto-adjusts image scale to fit content above the footer.
 - `pyproject.toml` remains for reference; installation uses `requirements.txt`.
