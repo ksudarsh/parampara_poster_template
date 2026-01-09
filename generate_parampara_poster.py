@@ -42,6 +42,10 @@ SECTION2_TITLE  = DEFAULT_BANNER_MESSAGES["M3"]  # M3
 SECTION2_SUB    = DEFAULT_BANNER_MESSAGES["M4"]  # M4
 FOOTER_TEXT     = DEFAULT_BANNER_MESSAGES["M5"]  # M5
 
+# Spacing tweaks to avoid header overlap across scripts
+TITLE_SUBTITLE_GAP = 24
+SECTION_TITLE_SUB_GAP = 10
+
 # ---------- Style / Flags ----------
 TITLE_FONT_WEIGHT    = "Bold"
 SUBTITLE_FONT_WEIGHT = "Bold"
@@ -704,6 +708,7 @@ def draw_separator_block(canvas, y, title_main, title_sub, main_size, sub_size, 
     y0 = draw_centered_text(canvas, title_main, y0, main_size, color=None,
                             shadow_strength=4, font_weight=SECTION_FONT_WEIGHT,
                             max_width=int(canvas.width*0.92), line_gap=8)
+    y0 += SECTION_TITLE_SUB_GAP
     y0 = draw_centered_text(canvas, title_sub,  y0, sub_size,  color=None,
                             shadow_strength=3, font_weight=SECTION_FONT_WEIGHT,
                             max_width=int(canvas.width*0.92), line_gap=8)
@@ -749,7 +754,7 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
     y = draw_banner(canvas, y, page_w, margin, max_height_fraction=banner_max_height_fraction)
     y = draw_centered_text(canvas, TITLE_TEXT, y, title_font, color=None, shadow_strength=5,
                            font_weight=TITLE_FONT_WEIGHT, max_width=int(page_w*0.92), line_gap=12)
-    y = draw_centered_text(canvas, SUBTITLE_TEXT, y+8, subtitle_font, color=None, shadow_strength=3,
+    y = draw_centered_text(canvas, SUBTITLE_TEXT, y+TITLE_SUBTITLE_GAP, subtitle_font, color=None, shadow_strength=3,
                            font_weight=SUBTITLE_FONT_WEIGHT, max_width=int(page_w*0.92), line_gap=10)
     y += 22
 
@@ -783,14 +788,26 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
         canvas.alpha_composite(im_circ,(x_center,y))
         # caption
         y2 = y + h + 12
-        cap_font = load_font(42, weight=FOOTER_FONT_WEIGHT)
-        lw,lh = _text_size(d, featured["caption"], cap_font)
-        bg = canvas.crop(((page_w-lw)//2, y2, (page_w+lw)//2, y2+lh))
-        fg, sh_color_base = get_adaptive_colors(bg)
+        cap_font = load_font(caption_font)
+        max_text_w = int(page_w * 0.6)
+        lines = wrap_text_to_width(featured["caption"], cap_font, max_text_w)
+        if lines:
+            max_lw = max(_text_size(d, li, cap_font)[0] for li in lines)
+            total_h = sum(_text_size(d, li, cap_font)[1] for li in lines) + (len(lines)-1)*4
+            bg = canvas.crop(((page_w-max_lw)//2, y2, (page_w+max_lw)//2, y2+total_h))
+            fg, sh_color_base = get_adaptive_colors(bg)
+        else:
+            total_h = 0
+            fg, sh_color_base = (70,50,0),(30,20,0)
         s_off = get_shadow_offset(2)
-        d.text(((page_w-lw)//2+s_off[0], y2+s_off[1]), featured["caption"], font=cap_font, fill=sh_color_base)
-        d.text(((page_w-lw)//2,   y2),   featured["caption"], font=cap_font, fill=fg)
-        y = y2 + lh + 28
+        ty = y2
+        for li in lines:
+            lw, lh = _text_size(d, li, cap_font)
+            tx = (page_w - lw)//2
+            d.text((tx+s_off[0], ty+s_off[1]), li, font=cap_font, fill=sh_color_base)
+            d.text((tx,          ty          ), li, font=cap_font, fill=fg)
+            ty += lh + 4
+        y = y2 + total_h + 28
 
     # Founders in 2 rows; contemporaries stacked within columns
     ordered_groups: List[List[dict]] = []
