@@ -51,6 +51,7 @@ TITLE_FONT_WEIGHT    = "Bold"
 SUBTITLE_FONT_WEIGHT = "Bold"
 SECTION_FONT_WEIGHT  = "Bold"
 FOOTER_FONT_WEIGHT   = "Bold"
+CAPTION_FONT_WEIGHT  = "Bold"
 
 # ---------- Shadow switches ----------
 SHADOW_MODE = "none"        # "none" | "directional"
@@ -228,28 +229,75 @@ def _text_size(d: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont):
     bb = d.textbbox((0,0), text, font=font)
     return bb[2]-bb[0], bb[3]-bb[1]
 
+IAST_TALL_CHARS = set("āīūṃśṣṭḍṇṝḹĀĪŪṂŚṢṬḌṆṜṜḸ")
+TIME_RANGE_RE = re.compile(r"\(?\d{3,4}\s*[-–—]\s*\d{2,4}\)?")
+
+def _contains_non_latin_script(text: str) -> bool:
+    for ch in text:
+        code = ord(ch)
+        if (
+            0x0900 <= code <= 0x097F  # Devanagari
+            or 0x0B80 <= code <= 0x0BFF  # Tamil
+            or 0x0C00 <= code <= 0x0C7F  # Telugu
+            or 0x0C80 <= code <= 0x0CFF  # Kannada
+        ):
+            return True
+    return False
+
+def _contains_iast_tall_chars(text: str) -> bool:
+    return any(ch in IAST_TALL_CHARS for ch in text)
+
+def _tokenize_preserving_time_ranges(text: str) -> List[str]:
+    tokens: List[str] = []
+    last = 0
+    for m in TIME_RANGE_RE.finditer(text):
+        before = text[last:m.start()]
+        tokens.extend(before.split())
+        tokens.append(m.group(0))
+        last = m.end()
+    tokens.extend(text[last:].split())
+    return tokens
+
+def _caption_line_gap(lines: List[str], font: ImageFont.FreeTypeFont, base_gap: int = 4) -> int:
+    gap = max(base_gap, int(round(font.size * 0.08)))
+    if any(_contains_iast_tall_chars(line) for line in lines):
+        gap = max(gap, int(round(font.size * 0.18)))
+    return gap
+
 def wrap_text_to_width(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> List[str]:
     """Word-wrap with a fallback to character splits if a single word exceeds max_width."""
     if max_width <= 0:
         return [text] if text else []
     dummy = ImageDraw.Draw(Image.new("RGBA",(1,1)))
-    def split_long_word(word: str) -> List[str]:
+    def split_long_word(word: str, allow_hyphenation: bool) -> List[str]:
+        if not allow_hyphenation:
+            return [word]
         parts=[]; cur=""
         for ch in word:
+            if unicodedata.combining(ch) and cur:
+                cur += ch
+                continue
             test = cur + ch
             w,_ = _text_size(dummy, test, font)
             if w <= max_width:
                 cur = test
             else:
                 if cur:
-                    parts.append(cur)
+                    if allow_hyphenation:
+                        hyph = cur + "-"
+                        if _text_size(dummy, hyph, font)[0] <= max_width:
+                            parts.append(hyph)
+                        else:
+                            parts.append(cur)
+                    else:
+                        parts.append(cur)
                     cur = ch
                 else:
                     parts.append(ch)  # single glyph too wide; force break
         if cur: parts.append(cur)
         return parts
 
-    words = text.split()
+    words = _tokenize_preserving_time_ranges(text)
     if not words:
         return []
     lines=[]
@@ -264,8 +312,12 @@ def wrap_text_to_width(text: str, font: ImageFont.FreeTypeFont, max_width: int) 
         if line:
             lines.append(line)
             line = ""
-        # word itself too long? split it
-        chunks = split_long_word(word)
+        # word itself too long? split it (only for Latin-ish tokens)
+        allow_hyphenation = (
+            not TIME_RANGE_RE.fullmatch(word.strip())
+            and not _contains_non_latin_script(word)
+        )
+        chunks = split_long_word(word, allow_hyphenation=allow_hyphenation)
         for chunk in chunks:
             w_chunk,_ = _text_size(dummy, chunk, font)
             if not line:
@@ -788,17 +840,19 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
         canvas.alpha_composite(im_circ,(x_center,y))
         # caption
         y2 = y + h + 12
-        cap_font = load_font(caption_font)
+        cap_font = load_font(caption_font, weight=CAPTION_FONT_WEIGHT)
         max_text_w = int(page_w * 0.6)
         lines = wrap_text_to_width(featured["caption"], cap_font, max_text_w)
         if lines:
             max_lw = max(_text_size(d, li, cap_font)[0] for li in lines)
-            total_h = sum(_text_size(d, li, cap_font)[1] for li in lines) + (len(lines)-1)*4
+            line_gap = _caption_line_gap(lines, cap_font)
+            total_h = sum(_text_size(d, li, cap_font)[1] for li in lines) + (len(lines)-1)*line_gap
             bg = canvas.crop(((page_w-max_lw)//2, y2, (page_w+max_lw)//2, y2+total_h))
             fg, sh_color_base = get_adaptive_colors(bg)
         else:
             total_h = 0
             fg, sh_color_base = (70,50,0),(30,20,0)
+            line_gap = 4
         s_off = get_shadow_offset(2)
         ty = y2
         for li in lines:
@@ -806,7 +860,7 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
             tx = (page_w - lw)//2
             d.text((tx+s_off[0], ty+s_off[1]), li, font=cap_font, fill=sh_color_base)
             d.text((tx,          ty          ), li, font=cap_font, fill=fg)
-            ty += lh + 4
+            ty += lh + line_gap
         y = y2 + total_h + 28
 
     # Founders in 2 rows; contemporaries stacked within columns
@@ -848,27 +902,30 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
                 canvas.alpha_composite(stroke,(ix-2,y0-2))
                 canvas.alpha_composite(im_circ,(ix,y0))
 
-            cap_font = load_font(caption_font)
+            cap_font = load_font(caption_font, weight=CAPTION_FONT_WEIGHT)
             max_text_w = int(cell_w * 0.9)
             measurer = ImageDraw.Draw(Image.new("RGBA",(1,1))) if measure_only else ImageDraw.Draw(canvas)
             lines = wrap_text_to_width(caption, cap_font, max_text_w)
             ty = y0 + h + 6
             if measure_only:
-                total_h = sum(_text_size(measurer, li, cap_font)[1] for li in lines) + (len(lines)-1)*4
+                line_gap = _caption_line_gap(lines, cap_font)
+                total_h = sum(_text_size(measurer, li, cap_font)[1] for li in lines) + (len(lines)-1)*line_gap
                 return (ty - y0) + total_h
             if lines:
                 max_lw = max(_text_size(measurer, li, cap_font)[0] for li in lines)
-                total_h = sum(_text_size(measurer, li, cap_font)[1] for li in lines) + (len(lines)-1)*4
+                line_gap = _caption_line_gap(lines, cap_font)
+                total_h = sum(_text_size(measurer, li, cap_font)[1] for li in lines) + (len(lines)-1)*line_gap
                 bg = canvas.crop((x+(cell_w-max_lw)//2, ty, x+(cell_w-max_lw)//2+max_lw, ty+total_h))
                 fg, sh_color_base = get_adaptive_colors(bg)
             else:
                 fg, sh_color_base = (70,50,0),(30,20,0)
+                line_gap = 4
             s_off = get_shadow_offset(2)
             for li in lines:
                 lw,lh=_text_size(measurer, li, cap_font); tx=x+(cell_w-lw)//2
                 ImageDraw.Draw(canvas).text((tx+s_off[0], ty+s_off[1]), li, font=cap_font, fill=sh_color_base)
                 ImageDraw.Draw(canvas).text((tx,          ty          ), li, font=cap_font, fill=fg)
-                ty += lh + 4
+                ty += lh + line_gap
             print_font_choice_once()
             return ty - y0
 
@@ -928,23 +985,25 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
         canvas.alpha_composite(stroke,(ix-2,y0-2))
         canvas.alpha_composite(im_circ,(ix,y0))
 
-        cap_font = load_font(caption_font)
+        cap_font = load_font(caption_font, weight=CAPTION_FONT_WEIGHT)
         max_text_w = int(cell_w * 0.9)
         lines = wrap_text_to_width(caption, cap_font, max_text_w)
         ty = y0 + h + 6
         if lines:
             max_lw = max(_text_size(ImageDraw.Draw(canvas), li, cap_font)[0] for li in lines)
-            total_h = sum(_text_size(ImageDraw.Draw(canvas), li, cap_font)[1] for li in lines) + (len(lines)-1)*4
+            line_gap = _caption_line_gap(lines, cap_font)
+            total_h = sum(_text_size(ImageDraw.Draw(canvas), li, cap_font)[1] for li in lines) + (len(lines)-1)*line_gap
             bg = canvas.crop((x+(cell_w-max_lw)//2, ty, x+(cell_w-max_lw)//2+max_lw, ty+total_h))
             fg, sh_color_base = get_adaptive_colors(bg)
         else:
             fg, sh_color_base = (70,50,0),(30,20,0)
+            line_gap = 4
         s_off = get_shadow_offset(2)
         for li in lines:
             lw,lh=_text_size(ImageDraw.Draw(canvas), li, cap_font); tx=x+(cell_w-lw)//2
             ImageDraw.Draw(canvas).text((tx+s_off[0],ty+s_off[1]), li, font=cap_font, fill=sh_color_base)
             ImageDraw.Draw(canvas).text((tx,          ty          ), li, font=cap_font, fill=fg)
-            ty += lh + 4
+            ty += lh + line_gap
         print_font_choice_once()
         return ty - y0
 
