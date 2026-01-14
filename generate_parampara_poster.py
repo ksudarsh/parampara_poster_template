@@ -409,7 +409,8 @@ def find_banner_path() -> Optional[str]:
 
 def draw_banner(canvas, y, page_w, margin, max_height_fraction=0.05):
     path = find_banner_path()
-    if not path: return y
+    if not path:
+        return y, False
     b = Image.open(path).convert("RGBA")
     width_cap  = page_w - 2*margin
     height_cap = int(canvas.height*max_height_fraction)
@@ -430,7 +431,7 @@ def draw_banner(canvas, y, page_w, margin, max_height_fraction=0.05):
 
     x = (canvas.width-new_w)//2
     canvas.alpha_composite(b, (x,y))
-    return y + new_h + 20
+    return y + new_h + 20, True
 
 # ---------- Alpha-safe image helpers ----------
 def open_rgba(path: str) -> Image.Image:
@@ -551,14 +552,18 @@ def load_banner_messages(xlsx_path: str, defaults: Dict[str,str]) -> Dict[str,st
 
     for _, row in df.iterrows():
         mid_raw = row.get(id_col)
-        msg_raw = row.get(msg_col)
-        if pd.isna(mid_raw) or pd.isna(msg_raw):
+        if pd.isna(mid_raw):
             continue
         mid = str(mid_raw).strip().upper()
-        msg = str(msg_raw).strip()
-        if not mid or not msg:
+        if not mid:
             continue
+        msg_raw = row.get(msg_col)
+        if pd.isna(msg_raw):
+            msg = ""
+        else:
+            msg = str(msg_raw).strip()
         if mid in messages:
+            # Allow explicit blank cells to clear a message (e.g., M4).
             messages[mid] = msg
     return messages
 
@@ -803,7 +808,10 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
 
     # Banner / Title / Subtitle
     y = margin
-    y = draw_banner(canvas, y, page_w, margin, max_height_fraction=banner_max_height_fraction)
+    y, banner_drawn = draw_banner(canvas, y, page_w, margin, max_height_fraction=banner_max_height_fraction)
+    if not banner_drawn:
+        # Reclaim the banner gap when no banner image is present.
+        y = max(0, y - 20)
     y = draw_centered_text(canvas, TITLE_TEXT, y, title_font, color=None, shadow_strength=5,
                            font_weight=TITLE_FONT_WEIGHT, max_width=int(page_w*0.92), line_gap=12)
     y = draw_centered_text(canvas, SUBTITLE_TEXT, y+TITLE_SUBTITLE_GAP, subtitle_font, color=None, shadow_strength=3,
