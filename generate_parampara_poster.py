@@ -230,7 +230,8 @@ def _text_size(d: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont):
     return bb[2]-bb[0], bb[3]-bb[1]
 
 IAST_TALL_CHARS = set("āīūṃśṣṭḍṇṝḹĀĪŪṂŚṢṬḌṆṜṜḸ")
-TIME_RANGE_RE = re.compile(r"\(?\d{3,4}\s*[-–—]\s*\d{2,4}\)?")
+TIME_RANGE_RE = re.compile(r"\(?\d{3,4}\s*[-??]\s*\d{2,4}\)?")
+PAREN_RANGE_RE = re.compile(r"\([^)]*[-??][^)]*\)")
 
 def _contains_non_latin_script(text: str) -> bool:
     for ch in text:
@@ -250,14 +251,22 @@ def _contains_iast_tall_chars(text: str) -> bool:
 def _tokenize_preserving_time_ranges(text: str) -> List[str]:
     tokens: List[str] = []
     last = 0
-    for m in TIME_RANGE_RE.finditer(text):
+    # Preserve parenthesized ranges (e.g., '(1990 - Present)') as single tokens.
+    for m in PAREN_RANGE_RE.finditer(text):
         before = text[last:m.start()]
         tokens.extend(before.split())
         tokens.append(m.group(0))
         last = m.end()
+    # Preserve numeric ranges even without parentheses.
+    for m in TIME_RANGE_RE.finditer(text[last:]):
+        start = last + m.start()
+        end = last + m.end()
+        before = text[last:start]
+        tokens.extend(before.split())
+        tokens.append(text[start:end])
+        last = end
     tokens.extend(text[last:].split())
     return tokens
-
 def _caption_line_gap(lines: List[str], font: ImageFont.FreeTypeFont, base_gap: int = 4) -> int:
     gap = max(base_gap, int(round(font.size * 0.08)))
     if any(_contains_iast_tall_chars(line) for line in lines):
