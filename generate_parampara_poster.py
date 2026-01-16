@@ -230,8 +230,8 @@ def _text_size(d: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont):
     return bb[2]-bb[0], bb[3]-bb[1]
 
 IAST_TALL_CHARS = set("āīūṃśṣṭḍṇṝḹĀĪŪṂŚṢṬḌṆṜṜḸ")
-TIME_RANGE_RE = re.compile(r"\(?\d{3,4}\s*[-??]\s*\d{2,4}\)?")
-PAREN_RANGE_RE = re.compile(r"\([^)]*[-??][^)]*\)")
+TIME_RANGE_RE = re.compile(r"\(?\d{3,4}\s*[-–—−]\s*\d{2,4}\)?")
+PAREN_RANGE_RE = re.compile(r"\([^)]*[-–—−][^)]*\)")
 
 def _contains_non_latin_script(text: str) -> bool:
     for ch in text:
