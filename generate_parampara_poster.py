@@ -7,6 +7,8 @@
 #   - Signature is drawn to the RIGHT of footer text on the same baseline
 #   - Content is sized via binary search to fit above the footer band with a safety gap
 #   - Shadows OFF by default; NumPy premultiply avoids Pillow ImageMath deprecations
+#   - FIX: M1 title (English) is forced to be ONE LINE by shrinking font (no wrap)
+#   - FIX: Prevent splitting time ranges like "(1990 - Present)" by using non-breaking joiners
 #
 # Deps: pip install pillow pandas openpyxl numpy
 
@@ -233,6 +235,10 @@ IAST_TALL_CHARS = set("āīūṃśṣṭḍṇṝḹĀĪŪṂŚṢṬḌṆṜ�
 TIME_RANGE_RE = re.compile(r"\(?\d{3,4}\s*[-–—−]\s*\d{2,4}\)?")
 PAREN_RANGE_RE = re.compile(r"\([^)]*[-–—−][^)]*\)")
 
+# Word-joiner (NOT whitespace; survives .split()) + non-breaking hyphen.
+WORD_JOINER = "\u2060"
+NONBREAK_HYPHEN = "\u2011"
+
 def _contains_non_latin_script(text: str) -> bool:
     for ch in text:
         code = ord(ch)
@@ -248,6 +254,15 @@ def _contains_non_latin_script(text: str) -> bool:
 def _contains_iast_tall_chars(text: str) -> bool:
     return any(ch in IAST_TALL_CHARS for ch in text)
 
+def _make_unbreakable_range(s: str) -> str:
+    """
+    Convert '1990 - Present' or '1890–1910' into a single token-safe string
+    by removing whitespace around the dash and inserting a non-breaking hyphen
+    separated by WORD_JOINER (which is not whitespace and won't be split()).
+    """
+    # Normalize any dash with optional surrounding whitespace into unbreakable join
+    return re.sub(r"\s*[-–—−]\s*", f"{WORD_JOINER}{NONBREAK_HYPHEN}{WORD_JOINER}", s)
+
 def _tokenize_preserving_time_ranges(text: str) -> List[str]:
     tokens: List[str] = []
     last = 0
@@ -255,7 +270,7 @@ def _tokenize_preserving_time_ranges(text: str) -> List[str]:
     for m in PAREN_RANGE_RE.finditer(text):
         before = text[last:m.start()]
         tokens.extend(before.split())
-        tokens.append(m.group(0))
+        tokens.append(_make_unbreakable_range(m.group(0)))
         last = m.end()
     # Preserve numeric ranges even without parentheses.
     for m in TIME_RANGE_RE.finditer(text[last:]):
@@ -263,10 +278,11 @@ def _tokenize_preserving_time_ranges(text: str) -> List[str]:
         end = last + m.end()
         before = text[last:start]
         tokens.extend(before.split())
-        tokens.append(text[start:end])
+        tokens.append(_make_unbreakable_range(text[start:end]))
         last = end
     tokens.extend(text[last:].split())
     return tokens
+
 def _caption_line_gap(lines: List[str], font: ImageFont.FreeTypeFont, base_gap: int = 4) -> int:
     gap = max(base_gap, int(round(font.size * 0.08)))
     if any(_contains_iast_tall_chars(line) for line in lines):
@@ -278,6 +294,7 @@ def wrap_text_to_width(text: str, font: ImageFont.FreeTypeFont, max_width: int) 
     if max_width <= 0:
         return [text] if text else []
     dummy = ImageDraw.Draw(Image.new("RGBA",(1,1)))
+
     def split_long_word(word: str, allow_hyphenation: bool) -> List[str]:
         if not allow_hyphenation:
             return [word]
@@ -317,18 +334,18 @@ def wrap_text_to_width(text: str, font: ImageFont.FreeTypeFont, max_width: int) 
         if w <= max_width:
             line = candidate
             continue
-        # current line can't fit the new word; push current if exists
         if line:
             lines.append(line)
             line = ""
-        # word itself too long? split it (only for Latin-ish tokens)
+        # prevent hyphenation/splitting of time-range tokens (already unbreakable, but keep this)
+        stripped = word.strip()
         allow_hyphenation = (
-            not TIME_RANGE_RE.fullmatch(word.strip())
+            not TIME_RANGE_RE.fullmatch(stripped)
+            and not PAREN_RANGE_RE.fullmatch(stripped)
             and not _contains_non_latin_script(word)
         )
         chunks = split_long_word(word, allow_hyphenation=allow_hyphenation)
         for chunk in chunks:
-            w_chunk,_ = _text_size(dummy, chunk, font)
             if not line:
                 line = chunk
             elif _text_size(dummy, (line + " " + chunk).strip(), font)[0] <= max_width:
@@ -357,14 +374,59 @@ def get_adaptive_colors(bg: Image.Image):
     light_shadow= (40,25,10)
     return (dark_text,dark_shadow) if luma>128 else (light_text,light_shadow)
 
-def draw_centered_text(img, text, y, size, color=None, max_width=None, line_gap=10, shadow_strength=3, font_weight='normal'):
-    if not text: return y
+def _fit_font_single_line(d: ImageDraw.ImageDraw, text: str, start_size: int, min_size: int,
+                          max_width: int, font_weight: str) -> Tuple[ImageFont.FreeTypeFont, int, int]:
+    """
+    Returns a font sized so that `text` fits within `max_width` on ONE LINE.
+    If it cannot fit by `min_size`, returns min_size anyway.
+    """
+    size = start_size
+    while size >= min_size:
+        font = load_font(size, font_weight)
+        w, h = _text_size(d, text, font)
+        if w <= max_width:
+            return font, w, h
+        size -= 1
+    font = load_font(min_size, font_weight)
+    w, h = _text_size(d, text, font)
+    return font, w, h
+
+def draw_centered_text(img, text, y, size, color=None, max_width=None, line_gap=10,
+                       shadow_strength=3, font_weight='normal', force_one_line_fit=False,
+                       min_fit_size: Optional[int] = None):
+    """
+    If max_width is provided, wraps by default.
+    If force_one_line_fit=True, it NEVER WRAPS: it shrinks font size until one line fits max_width.
+    """
+    if not text:
+        return y
+
     d = ImageDraw.Draw(img)
-    font = load_font(size, font_weight)
     s_off = get_shadow_offset(shadow_strength)
     s_override = None
     if SHADOW_COLOR_HEX:
         s_override = (*_hex_to_rgb(SHADOW_COLOR_HEX), SHADOW_OPACITY)
+
+    # ONE-LINE FIT MODE (for M1 English title)
+    if force_one_line_fit and max_width is not None:
+        min_size = min_fit_size if min_fit_size is not None else max(10, int(round(size * 0.70)))
+        font, lw, lh = _fit_font_single_line(d, text, start_size=size, min_size=min_size,
+                                             max_width=max_width, font_weight=font_weight)
+
+        x = (img.width - lw)//2
+        # pick adaptive colors based on local background
+        bg = img.crop((max(0, x), max(0, y), min(img.width, x+lw), min(img.height, y+lh)))
+        fg, sh = (color, (40,25,10)) if color is not None else get_adaptive_colors(bg)
+        if s_override:
+            sh = s_override
+        if shadow_strength > 0:
+            d.text((x+s_off[0], y+s_off[1]), text, font=font, fill=sh)
+        d.text((x, y), text, font=font, fill=fg)
+        print_font_choice_once()
+        return y + lh
+
+    # NORMAL MODE (wrap if max_width is set)
+    font = load_font(size, font_weight)
 
     def draw_line(line, y0):
         lw, lh = _text_size(d, line, font)
@@ -384,9 +446,12 @@ def draw_centered_text(img, text, y, size, color=None, max_width=None, line_gap=
     words = text.split(); lines=[]; line=""
     for w in words:
         t=(line+" "+w).strip(); tw,_=_text_size(d,t,font)
-        if tw<=max_width or not line: line=t
-        else: lines.append(line); line=w
+        if tw<=max_width or not line:
+            line=t
+        else:
+            lines.append(line); line=w
     if line: lines.append(line)
+
     for li in lines:
         y = draw_line(li, y) + line_gap
     print_font_choice_once()
@@ -572,7 +637,6 @@ def load_banner_messages(xlsx_path: str, defaults: Dict[str,str]) -> Dict[str,st
         else:
             msg = str(msg_raw).strip()
         if mid in messages:
-            # Allow explicit blank cells to clear a message (e.g., M4).
             messages[mid] = msg
     return messages
 
@@ -591,7 +655,6 @@ def read_xlsx(xlsx_path: Optional[str] = None):
         raise FileNotFoundError(f"Data file not found: {xlsx_file}")
 
     def pick_sheet(xl: pd.ExcelFile, candidates: List[str]) -> str:
-        """Pick the first matching sheet (case-insensitive, underscores/spaces ignored)."""
         available = xl.sheet_names
         norm_map = {}
         for s in available:
@@ -601,7 +664,6 @@ def read_xlsx(xlsx_path: Optional[str] = None):
             key = cand.replace("_", "").replace(" ", "").lower()
             if key in norm_map:
                 return norm_map[key]
-        # fallback to the first sheet
         return available[0]
 
     xl = pd.ExcelFile(xlsx_file, engine="openpyxl")
@@ -610,7 +672,6 @@ def read_xlsx(xlsx_path: Optional[str] = None):
     df_f = xl.parse(sheet_name=founders_sheet, header=None)
     df_p = xl.parse(sheet_name=parakala_sheet, header=None)
 
-    # Drop spacer columns that are entirely blank so indexes stay consistent
     df_f = df_f.dropna(axis=1, how='all')
     df_p = df_p.dropna(axis=1, how='all')
 
@@ -621,13 +682,11 @@ def read_xlsx(xlsx_path: Optional[str] = None):
         except Exception:
             return False
 
-    # Heuristically detect founder columns (handles layouts where ID and caption swap columns)
     id_col = 0
     caption_col = 1 if df_f.shape[1] > 1 else 0
     group_col = 2 if df_f.shape[1] > 2 else None
     enhance_col = 3 if df_f.shape[1] > 3 else None
 
-    # Prefer column containing F-codes for IDs
     fcode_cols = []
     for c in range(df_f.shape[1]):
         vals = df_f.iloc[:, c].dropna().astype(str).str.strip()
@@ -638,7 +697,6 @@ def read_xlsx(xlsx_path: Optional[str] = None):
     if fcode_cols:
         id_col = fcode_cols[0]
 
-    # Choose caption column as the first non-ID, mostly non-numeric column with longest text
     caption_candidates = []
     for c in range(df_f.shape[1]):
         if c == id_col: continue
@@ -651,14 +709,12 @@ def read_xlsx(xlsx_path: Optional[str] = None):
         caption_candidates.sort()
         caption_col = caption_candidates[0][2]
 
-    # Group column: first non-ID/non-caption column that is mostly numeric
     for c in range(df_f.shape[1]):
         if c in (id_col, caption_col): continue
         if _is_numeric(df_f.iloc[:, c]):
             group_col = c
             break
 
-    # Enhance column: any column with an 'M' flag
     for c in range(df_f.shape[1]):
         if c in (id_col, caption_col, group_col): continue
         vals = df_f.iloc[:, c].dropna().astype(str).str.strip().str.upper().head(20)
@@ -666,7 +722,6 @@ def read_xlsx(xlsx_path: Optional[str] = None):
             enhance_col = c
             break
 
-    # Founders: optional header skip (accent-insensitive)
     first_val_f = ""
     first_id_f = ""
     try:
@@ -714,7 +769,6 @@ def read_xlsx(xlsx_path: Optional[str] = None):
             print(f">>> WARNING: Skipping founder row {i} due to error: {e} (Row data: {row.to_list()})")
             continue
 
-    # Parak??la: optional header skip
     try: first_val_p = normalize_ascii_lower(df_p.iloc[0,0])
     except Exception: first_val_p = ""
     try: first_cap_p = normalize_ascii_lower(df_p.iloc[0,1])
@@ -726,7 +780,7 @@ def read_xlsx(xlsx_path: Optional[str] = None):
     for _,row in df_p.iterrows():
         if len(row)<2: continue
         try:
-            pid = int(float(row.iloc[0]))              # 1..36 (Excel)
+            pid = int(float(row.iloc[0]))
             cap = str(row.iloc[1]).strip()
             if cap:
                 parakala.append({"id": pid, "caption": cap})
@@ -819,10 +873,18 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
     y = margin
     y, banner_drawn = draw_banner(canvas, y, page_w, margin, max_height_fraction=banner_max_height_fraction)
     if not banner_drawn:
-        # Reclaim the banner gap when no banner image is present.
         y = max(0, y - 20)
-    y = draw_centered_text(canvas, TITLE_TEXT, y, title_font, color=None, shadow_strength=5,
-                           font_weight=TITLE_FONT_WEIGHT, max_width=int(page_w*0.92), line_gap=12)
+
+    # --- FIX: Force M1 to be one line by shrinking font (English only) ---
+    force_one_line = (SELECTED_LANGUAGE or "english").lower() == "english"
+    y = draw_centered_text(
+        canvas, TITLE_TEXT, y, title_font, color=None, shadow_strength=5,
+        font_weight=TITLE_FONT_WEIGHT, max_width=int(page_w*0.92),
+        line_gap=12,
+        force_one_line_fit=force_one_line,
+        min_fit_size=max(40, int(round(title_font * 0.65)))  # adjust if needed
+    )
+
     y = draw_centered_text(canvas, SUBTITLE_TEXT, y+TITLE_SUBTITLE_GAP, subtitle_font, color=None, shadow_strength=3,
                            font_weight=SUBTITLE_FONT_WEIGHT, max_width=int(page_w*0.92), line_gap=10)
     y += 22
@@ -893,7 +955,6 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
         row1_count = math.ceil(total_groups/2)
         rows_groups = [ordered_groups[:row1_count], ordered_groups[row1_count:]]
 
-    # Determine max columns to standardize cell width across rows
     max_cols_in_founder_rows = max(len(rg) for rg in rows_groups) if rows_groups and any(rows_groups) else 1
 
     def draw_group_row(row_groups: List[List[dict]], start_y: int, max_cols: int) -> int:
@@ -946,7 +1007,6 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
             print_font_choice_once()
             return ty - y0
 
-        # measure
         col_heights=[]
         for grp in row_groups:
             acc=0
@@ -958,7 +1018,6 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
             col_heights.append(acc)
         row_h = max(col_heights) if col_heights else 0
 
-        # Center the row if it has fewer columns than the max
         row_width = cols * cell_w + (cols - 1) * gutter_x
         draw_x = margin + ( (page_w - 2*margin) - row_width ) // 2
 
@@ -984,7 +1043,6 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
 
     total_gutter = (num_cols-1)*gutter_x
     cell_w = (page_w - 2*margin - total_gutter)//num_cols
-    x0 = margin
 
     def draw_cell_grid(x:int, y0:int, img_path:str, caption:str) -> int:
         img_w_max = cell_w
@@ -1006,10 +1064,11 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
         max_text_w = int(cell_w * 0.9)
         lines = wrap_text_to_width(caption, cap_font, max_text_w)
         ty = y0 + h + 6
+        meas = ImageDraw.Draw(canvas)
         if lines:
-            max_lw = max(_text_size(ImageDraw.Draw(canvas), li, cap_font)[0] for li in lines)
+            max_lw = max(_text_size(meas, li, cap_font)[0] for li in lines)
             line_gap = _caption_line_gap(lines, cap_font)
-            total_h = sum(_text_size(ImageDraw.Draw(canvas), li, cap_font)[1] for li in lines) + (len(lines)-1)*line_gap
+            total_h = sum(_text_size(meas, li, cap_font)[1] for li in lines) + (len(lines)-1)*line_gap
             bg = canvas.crop((x+(cell_w-max_lw)//2, ty, x+(cell_w-max_lw)//2+max_lw, ty+total_h))
             fg, sh_color_base = get_adaptive_colors(bg)
         else:
@@ -1017,14 +1076,13 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
             line_gap = 4
         s_off = get_shadow_offset(2)
         for li in lines:
-            lw,lh=_text_size(ImageDraw.Draw(canvas), li, cap_font); tx=x+(cell_w-lw)//2
-            ImageDraw.Draw(canvas).text((tx+s_off[0],ty+s_off[1]), li, font=cap_font, fill=sh_color_base)
-            ImageDraw.Draw(canvas).text((tx,          ty          ), li, font=cap_font, fill=fg)
+            lw,lh=_text_size(meas, li, cap_font); tx=x+(cell_w-lw)//2
+            meas.text((tx+s_off[0],ty+s_off[1]), li, font=cap_font, fill=sh_color_base)
+            meas.text((tx,          ty          ), li, font=cap_font, fill=fg)
             ty += lh + line_gap
         print_font_choice_once()
         return ty - y0
 
-    # draw Parakāla rows
     idx=0
     while idx < len(parakala_data):
         row_items = []
@@ -1032,7 +1090,6 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
             code = f"{it['id']:02d}00"
             row_items.append((p_map.get(code, ""), it['caption']))
 
-        # Center the row if it has fewer items than num_cols
         row_width = len(row_items) * cell_w + (len(row_items) - 1) * gutter_x
         start_x = margin + ( (page_w - 2*margin) - row_width ) // 2
 
@@ -1052,33 +1109,28 @@ def draw_footer_and_signature(canvas: Image.Image, page_w: int, page_h: int, mar
     footer_font = load_font(footer_font_size, weight=FOOTER_FONT_WEIGHT)
     lw, footer_h = _text_size(d, FOOTER_TEXT, footer_font)
 
-    footer_y = page_h - margin - footer_h  # bottom anchored
+    footer_y = page_h - margin - footer_h
     strip_pad = 12
     bg_strip = canvas.crop((margin, max(0, footer_y - strip_pad), page_w - margin, min(page_h, footer_y + footer_h + strip_pad)))
     fg, sh = get_adaptive_colors(bg_strip)
     s_off = get_shadow_offset(3)
 
-    # centered footer text
     tx = (page_w - lw)//2
     d.text((tx+s_off[0], footer_y+s_off[1]), FOOTER_TEXT, font=footer_font, fill=sh)
     d.text((tx,          footer_y          ), FOOTER_TEXT, font=footer_font, fill=fg)
 
-    # signature to the right of footer text on the same baseline
     if SHOW_SIGNATURE and os.path.isfile(SIGNATURE_PATH):
         try:
-            # Load and scale signature to fit footer height
             sig = Image.open(SIGNATURE_PATH).convert("RGBA")
-            max_sig_h = footer_h * 1.2 # Allow it to be slightly taller than text
+            max_sig_h = footer_h * 1.2
             if sig.height > max_sig_h:
                 r = max_sig_h / sig.height
                 sig = sig.resize((max(1,int(sig.width*r)), int(max_sig_h)), Image.LANCZOS)
 
-            # Calculate position based on SIGNATURE_POSITION
             drawable_width = page_w - 2*margin - sig.width
             pos_frac = max(0.0, min(1.0, SIGNATURE_POSITION))
             sig_x = margin + int(drawable_width * pos_frac)
-            
-            # Align baseline of signature with baseline of footer text
+
             sig_y = footer_y + footer_h - sig.height
             canvas.alpha_composite(sig, (sig_x, sig_y))
         except Exception as e:
@@ -1093,19 +1145,15 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
     founders_data, parakala_data = read_xlsx(xlsx_path)
     f_map, p_map = index_images(IMAGES_DIR)
 
-    # Measure footer band
     dummy = ImageDraw.Draw(Image.new("RGB",(1,1)))
     fnt = load_font(footer_font, weight=FOOTER_FONT_WEIGHT)
     footer_h = dummy.textbbox((0,0), FOOTER_TEXT, font=fnt)[3]
     safety_gap = 16
     footer_top = page_h - margin - footer_h
-    content_limit = footer_top - safety_gap  # content must end above this
+    content_limit = footer_top - safety_gap
 
-    # Binary search for a scale that fits content under content_limit
-    lo, hi = 0.50, 0.90  # allowed bounds for img_scale
+    lo, hi = 0.50, 0.90
     best_scale = None
-
-    # Start with requested img_scale if inside bounds
     start_scale = min(max(img_scale, lo), hi)
 
     def measure(scale: float) -> Tuple[Image.Image, int]:
@@ -1116,41 +1164,34 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
                               founders_data=founders_data, parakala_data=parakala_data,
                               founders_map=f_map, parakala_map=p_map, xlsx_path=xlsx_path)
 
-    # First measure
     canvas, end_y = measure(start_scale)
     if end_y <= content_limit:
         best_scale = start_scale
     else:
-        # Narrow down with bsearch
         for _ in range(16):
             mid = (lo + hi) / 2.0
             canvas, end_y = measure(mid)
             if end_y <= content_limit:
                 best_scale = mid
-                lo = mid  # we can try bigger
+                lo = mid
             else:
-                hi = mid  # too big, go smaller
+                hi = mid
         if best_scale is None:
-            # fallback to the smallest we tried
             best_scale = hi
             canvas, end_y = measure(best_scale)
 
-    # If we measured with a scale different from start_scale, re-render at best_scale to be sure
     if abs(best_scale - start_scale) > 1e-6:
         canvas, end_y = measure(best_scale)
 
-    # As a final clamp, if still a pixel or two over, draw a thin separator
     if end_y > content_limit:
         sep = Image.new("RGBA", (page_w - 2*margin, 2), (0,0,0,60))
         canvas.alpha_composite(sep, (margin, max(margin, content_limit - 6)))
 
-    # Footer & signature (bottom anchored)
     draw_footer_and_signature(canvas, page_w, page_h, margin, footer_font_size=footer_font)
     return canvas.convert("RGB")
 
 # ---------- Main ----------
 def main():
-    # --- User Input ---
     language_input = input("Enter language (English/Kannada/Telugu/Tamil/Sanskrit) [default: English]: ").strip()
     language_choice = resolve_language_choice(language_input)
     try:
@@ -1163,6 +1204,7 @@ def main():
         except FileNotFoundError as e2:
             print(f">>> ERROR: English spreadsheet not found either: {e2}")
             return
+
     banner_messages = load_banner_messages(xlsx_path, DEFAULT_BANNER_MESSAGES)
     apply_banner_messages(banner_messages)
     global XLSX_PATH, SELECTED_LANGUAGE
@@ -1182,15 +1224,12 @@ def main():
     print(f"\n>>> Generating {size_choice} poster as a {format_choice} file...")
     print(f">>> Language: {language_choice.title()} | Spreadsheet: {os.path.basename(xlsx_path)}")
 
-    # --- Size and Layout Configuration ---
     if size_choice == "A1":
-        # A1 @ 300 DPI: 7016 x 9921 px
         page_w, page_h = 7016, 9921
         margin, num_cols, gutter_x, row_gap = 120, 7, 40, 45
         title_font, subtitle_font, caption_font, footer_font = 240, 88, 56, 70
         section2_title_size, section2_sub_size = 160, 82
-    else: # A2 (default)
-        # A2 @ 300 DPI: 4961 x 7016 px
+    else:
         page_w, page_h = 4961, 7016
         margin, num_cols, gutter_x, row_gap = 90, 6, 30, 34
         title_font, subtitle_font, caption_font, footer_font = 180, 66, 42, 52
@@ -1211,12 +1250,11 @@ def main():
     if final is None:
         print("Render failed."); return
 
-    # --- Save Output ---
     base_name = f"Sri_Parakala_Matham_Guru_Parampara_GRID_{size_choice}"
     if format_choice == "PDF":
         output_path = os.path.join(HERE, f"{base_name}.pdf")
         final.save(output_path, "PDF", resolution=300.0, quality=95)
-    else: # PNG
+    else:
         output_path = os.path.join(HERE, f"{base_name}.png")
         final.save(output_path, quality=95)
 
