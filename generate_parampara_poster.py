@@ -65,7 +65,6 @@ IMAGE_SHADOW_BLUR     = 8
 
 MAGNIFY_FACTOR        = 1.50  # +10% for 'M' founders
 FOUNDERS_ROWS         = 2
-OVERLAY_CORNERS       = []
 PARCHMENT_MODE        = "stretch"
 PARCHMENT_BRIGHTNESS  = 0.85
 FEATURED_ACHARYA_MODE = True  # F00 on top
@@ -92,7 +91,6 @@ XLSX_PATH   = next((p for p in DEFAULT_XLSX_CANDIDATES if os.path.isfile(p)), DE
 PARCHMENT_PATH    = os.path.join(ASSETS_DIR, "parchment_bg.jpg")
 MANDALA_TILE_PATH = os.path.join(ASSETS_DIR, "mandala_tile.png")
 SIGNATURE_PATH    = os.path.join(ASSETS_DIR, "signature.png")
-OUT_A2            = os.path.join(HERE, "Sri_Parakala_Matham_Guru_Parampara_GRID_A2.png")
 
 # ---------- Fonts ----------
 SELECTED_LANGUAGE = "english"
@@ -123,12 +121,17 @@ LANGUAGE_FONT_PREFS = {
 _FONT_USED = None
 _PRINTED_FONT = False
 _FONT_CACHE: Dict[Tuple[int,str,str], ImageFont.FreeTypeFont] = {}
+_FONT_PATHS_CACHE: Dict[str, List[str]] = {}
 
 def _find_fonts_recursively(base_dir):
-    if not os.path.isdir(base_dir): return []
+    if not os.path.isdir(base_dir):
+        return []
+    if base_dir in _FONT_PATHS_CACHE:
+        return _FONT_PATHS_CACHE[base_dir]
     paths = []
     for ext in ("*.ttf","*.otf","*.ttc"):
         paths.extend(glob.glob(os.path.join(base_dir, "**", ext), recursive=True))
+    _FONT_PATHS_CACHE[base_dir] = paths
     return paths
 
 def _try_load_font(size: int, candidates: List[str]) -> Optional[ImageFont.FreeTypeFont]:
@@ -583,9 +586,60 @@ LANGUAGE_ALIASES = {
     "sa": "sanskrit",
 }
 
-def resolve_language_choice(raw: str) -> str:
-    key = normalize_ascii_lower(raw or "").replace(" ", "")
-    return LANGUAGE_ALIASES.get(key, "english")
+LANGUAGE_ORDER = ["english", "kannada", "telugu", "tamil", "sanskrit"]
+
+def list_available_languages() -> List[str]:
+    found = set()
+    patterns = [
+        os.path.join(HERE, "acharyan_captiona*.xlsx"),
+        os.path.join(HERE, "acharyan_captions*.xlsx"),
+    ]
+    for pattern in patterns:
+        for path in glob.glob(pattern):
+            base = os.path.basename(path).lower()
+            lang = None
+            match = re.match(r"acharyan_captiona_(.+)\.xlsx", base) or re.match(r"acharyan_captions_(.+)\.xlsx", base)
+            if match:
+                key = normalize_ascii_lower(match.group(1)).replace(" ", "")
+                if key in LANGUAGE_ALIASES:
+                    lang = LANGUAGE_ALIASES[key]
+            elif base in ("acharyan_captiona.xlsx", "acharyan_captions.xlsx"):
+                lang = "english"
+            if lang:
+                found.add(lang)
+    ordered = [lang for lang in LANGUAGE_ORDER if lang in found]
+    return ordered
+
+def parse_language_selections(raw: str, available: List[str]) -> List[str]:
+    if not available:
+        return []
+    text = normalize_ascii_lower(raw or "").strip()
+    if not text:
+        return ["english"] if "english" in available else [available[0]]
+    if text in ("all", "*"):
+        return list(available)
+
+    chosen = []
+    invalid = []
+    tokens = re.split(r"[,\s]+", text)
+    for token in tokens:
+        if not token:
+            continue
+        key = normalize_ascii_lower(token).replace(" ", "")
+        if key in LANGUAGE_ALIASES:
+            lang = LANGUAGE_ALIASES[key]
+            if lang in available and lang not in chosen:
+                chosen.append(lang)
+            elif lang not in available:
+                invalid.append(token)
+        else:
+            invalid.append(token)
+
+    if invalid:
+        print(f">>> WARNING: Ignoring unsupported languages: {', '.join(invalid)}")
+    if not chosen:
+        return ["english"] if "english" in available else [available[0]]
+    return chosen
 
 def resolve_xlsx_path(language_choice: str) -> str:
     lang = normalize_ascii_lower(language_choice).replace(" ", "")
@@ -1141,9 +1195,13 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
                          title_font=180, subtitle_font=66, caption_font=42, footer_font=52,
                          img_scale=0.68, section_gap_extra=90, section2_title_size=120, section2_sub_size=62,
                          banner_max_height_fraction=0.05, parchment_brightness=1.0, parchment_mode='stretch',
-                         featured_acharya_mode=True, xlsx_path: Optional[str] = None) -> Optional[Image.Image]:
-    founders_data, parakala_data = read_xlsx(xlsx_path)
-    f_map, p_map = index_images(IMAGES_DIR)
+                         featured_acharya_mode=True, xlsx_path: Optional[str] = None,
+                         founders_data=None, parakala_data=None,
+                         founders_map=None, parakala_map=None) -> Optional[Image.Image]:
+    if founders_data is None or parakala_data is None:
+        founders_data, parakala_data = read_xlsx(xlsx_path)
+    if founders_map is None or parakala_map is None:
+        founders_map, parakala_map = index_images(IMAGES_DIR)
 
     dummy = ImageDraw.Draw(Image.new("RGB",(1,1)))
     fnt = load_font(footer_font, weight=FOOTER_FONT_WEIGHT)
@@ -1162,7 +1220,7 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
                               scale,section_gap_extra,section2_title_size,section2_sub_size,
                               banner_max_height_fraction,parchment_brightness,parchment_mode,featured_acharya_mode,
                               founders_data=founders_data, parakala_data=parakala_data,
-                              founders_map=f_map, parakala_map=p_map, xlsx_path=xlsx_path)
+                              founders_map=founders_map, parakala_map=parakala_map, xlsx_path=xlsx_path)
 
     canvas, end_y = measure(start_scale)
     if end_y <= content_limit:
@@ -1192,74 +1250,87 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
 
 # ---------- Main ----------
 def main():
-    language_input = input("Enter language (English/Kannada/Telugu/Tamil/Sanskrit) [default: English]: ").strip()
-    language_choice = resolve_language_choice(language_input)
-    try:
-        xlsx_path = resolve_xlsx_path(language_choice)
-    except FileNotFoundError as e:
-        print(f">>> WARNING: {e}")
-        language_choice = "english"
-        try:
-            xlsx_path = resolve_xlsx_path(language_choice)
-        except FileNotFoundError as e2:
-            print(f">>> ERROR: English spreadsheet not found either: {e2}")
-            return
-
-    banner_messages = load_banner_messages(xlsx_path, DEFAULT_BANNER_MESSAGES)
-    apply_banner_messages(banner_messages)
-    global XLSX_PATH, SELECTED_LANGUAGE
-    XLSX_PATH = xlsx_path
-    SELECTED_LANGUAGE = language_choice
-
-    size_choice = input("Enter poster size (A1 or A2) [default: A2]: ").strip().upper() or "A2"
-    if size_choice not in ["A1", "A2"]:
-        print(f"Invalid size '{size_choice}'. Defaulting to A2.")
-        size_choice = "A2"
+    available_languages = list_available_languages()
+    if not available_languages:
+        print(">>> ERROR: No language spreadsheets found.")
+        return
+    default_lang = "english" if "english" in available_languages else available_languages[0]
+    available_label = "/".join(lang.title() for lang in available_languages)
+    language_input = input(
+        f"Enter language(s) ({available_label}) [default: {default_lang.title()}]: "
+    ).strip()
+    language_choices = parse_language_selections(language_input, available_languages)
+    if not language_choices:
+        print(">>> ERROR: No valid languages selected.")
+        return
 
     format_choice = input("Enter output format (PDF or PNG) [default: PDF]: ").strip().upper() or "PDF"
     if format_choice not in ["PDF", "PNG"]:
         print(f"Invalid format '{format_choice}'. Defaulting to PDF.")
         format_choice = "PDF"
 
-    print(f"\n>>> Generating {size_choice} poster as a {format_choice} file...")
-    print(f">>> Language: {language_choice.title()} | Spreadsheet: {os.path.basename(xlsx_path)}")
+    size_configs = {
+        "A1": {
+            "page_w": 7016, "page_h": 9921,
+            "margin": 120, "num_cols": 7, "gutter_x": 40, "row_gap": 45,
+            "title_font": 240, "subtitle_font": 88, "caption_font": 56, "footer_font": 70,
+            "section2_title_size": 160, "section2_sub_size": 82,
+        },
+        "A2": {
+            "page_w": 4961, "page_h": 7016,
+            "margin": 90, "num_cols": 6, "gutter_x": 30, "row_gap": 34,
+            "title_font": 180, "subtitle_font": 66, "caption_font": 42, "footer_font": 52,
+            "section2_title_size": 120, "section2_sub_size": 62,
+        },
+    }
 
-    if size_choice == "A1":
-        page_w, page_h = 7016, 9921
-        margin, num_cols, gutter_x, row_gap = 120, 7, 40, 45
-        title_font, subtitle_font, caption_font, footer_font = 240, 88, 56, 70
-        section2_title_size, section2_sub_size = 160, 82
-    else:
-        page_w, page_h = 4961, 7016
-        margin, num_cols, gutter_x, row_gap = 90, 6, 30, 34
-        title_font, subtitle_font, caption_font, footer_font = 180, 66, 42, 52
-        section2_title_size, section2_sub_size = 120, 62
+    global XLSX_PATH, SELECTED_LANGUAGE
+    founders_map, parakala_map = index_images(IMAGES_DIR)
+    for language_choice in language_choices:
+        try:
+            xlsx_path = resolve_xlsx_path(language_choice)
+        except FileNotFoundError as e:
+            print(f">>> WARNING: {e}")
+            continue
 
-    final = render_with_auto_fit(
-        page_w=page_w, page_h=page_h,
-        margin=margin, num_cols=num_cols, gutter_x=gutter_x, row_gap=row_gap,
-        title_font=title_font, subtitle_font=subtitle_font, caption_font=caption_font, footer_font=footer_font,
-        img_scale=0.68, section_gap_extra=90,
-        section2_title_size=section2_title_size, section2_sub_size=section2_sub_size,
-        banner_max_height_fraction=0.05,
-        parchment_brightness=PARCHMENT_BRIGHTNESS, parchment_mode=PARCHMENT_MODE,
-        featured_acharya_mode=FEATURED_ACHARYA_MODE,
-        xlsx_path=xlsx_path
-    )
+        banner_messages = load_banner_messages(xlsx_path, DEFAULT_BANNER_MESSAGES)
+        apply_banner_messages(banner_messages)
+        founders_data, parakala_data = read_xlsx(xlsx_path)
+        XLSX_PATH = xlsx_path
+        SELECTED_LANGUAGE = language_choice
 
-    if final is None:
-        print("Render failed."); return
+        print(f"\n>>> Generating A1 and A2 posters as {format_choice} files...")
+        print(f">>> Language: {language_choice.title()} | Spreadsheet: {os.path.basename(xlsx_path)}")
 
-    base_name = f"Sri_Parakala_Matham_Guru_Parampara_GRID_{size_choice}"
-    if format_choice == "PDF":
-        output_path = os.path.join(HERE, f"{base_name}.pdf")
-        final.save(output_path, "PDF", resolution=300.0, quality=95)
-    else:
-        output_path = os.path.join(HERE, f"{base_name}.png")
-        final.save(output_path, quality=95)
+        for size_choice, cfg in size_configs.items():
+            final = render_with_auto_fit(
+                page_w=cfg["page_w"], page_h=cfg["page_h"],
+                margin=cfg["margin"], num_cols=cfg["num_cols"], gutter_x=cfg["gutter_x"], row_gap=cfg["row_gap"],
+                title_font=cfg["title_font"], subtitle_font=cfg["subtitle_font"],
+                caption_font=cfg["caption_font"], footer_font=cfg["footer_font"],
+                img_scale=0.68, section_gap_extra=90,
+                section2_title_size=cfg["section2_title_size"], section2_sub_size=cfg["section2_sub_size"],
+                banner_max_height_fraction=0.05,
+                parchment_brightness=PARCHMENT_BRIGHTNESS, parchment_mode=PARCHMENT_MODE,
+                featured_acharya_mode=FEATURED_ACHARYA_MODE,
+                xlsx_path=xlsx_path,
+                founders_data=founders_data, parakala_data=parakala_data,
+                founders_map=founders_map, parakala_map=parakala_map
+            )
 
-    print("\nSuccess! Saved poster to:")
-    print(output_path)
+            if final is None:
+                print(f">>> Render failed for {language_choice.title()} {size_choice}.")
+                continue
+
+            base_name = f"Sri_Parakala_Matham_Guru_Parampara_{language_choice.title()}_{size_choice}"
+            if format_choice == "PDF":
+                output_path = os.path.join(HERE, f"{base_name}.pdf")
+                final.save(output_path, "PDF", resolution=300.0, quality=95)
+            else:
+                output_path = os.path.join(HERE, f"{base_name}.png")
+                final.save(output_path, quality=95)
+
+            print(f">>> Saved: {output_path}")
 
 if __name__ == "__main__":
     main()
