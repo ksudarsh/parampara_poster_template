@@ -1,0 +1,19 @@
+.git
+.github
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Generated outputs
+output/
+*.pdf
+*.png
+
+# OS/editor junk
+.DS_Store
+Thumbs.db
+
+# Python virtualenvs
+.venv/
+venv/
