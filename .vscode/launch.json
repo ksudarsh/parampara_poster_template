@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Generate Posters",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/generate_parampara_poster.py",
+      "console": "integratedTerminal",
+      "args": [
+        "--output-dir",
+        "E:\\Temp\\empty\\output",
+        "--languages",
+        "english,tamil,kannada,sanskrit,telugu",
+        "--sizes",
+        "a1,a2,a3,letter",
+        "--formats",
+        "pdf,png"
+      ]
+    }
+  ]
+}

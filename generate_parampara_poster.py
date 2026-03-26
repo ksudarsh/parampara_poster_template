@@ -12,7 +12,7 @@
 #
 # Deps: pip install pillow pandas openpyxl numpy
 
-import os, re, sys, glob, math, unicodedata
+import os, re, sys, glob, math, argparse, unicodedata
 from typing import Optional, List, Tuple, Dict
 
 import numpy as np
@@ -478,10 +478,13 @@ def find_banner_path() -> Optional[str]:
     ]
     for p in prefer:
         if os.path.isfile(p): return p
-    for ext in ("*.jpg","*.jpeg","*.png"):
-        for p in glob.glob(os.path.join(ASSETS_DIR,"**",ext), recursive=True):
-            n=os.path.basename(p).lower()
-            if "parakala" in n and "banner" in n: return p
+    for root, _, files in os.walk(ASSETS_DIR):
+        for name in files:
+            lower = name.lower()
+            if not lower.endswith((".jpg", ".jpeg", ".png")):
+                continue
+            if "parakala" in lower and "banner" in lower:
+                return os.path.join(root, name)
     return None
 
 def draw_banner(canvas, y, page_w, margin, max_height_fraction=0.05):
@@ -587,6 +590,22 @@ LANGUAGE_ALIASES = {
 }
 
 LANGUAGE_ORDER = ["english", "kannada", "telugu", "tamil", "sanskrit"]
+FORMAT_ALIASES = {
+    "": "PDF",
+    "pdf": "PDF",
+    "png": "PNG",
+}
+FORMAT_ORDER = ["PDF", "PNG"]
+SIZE_ALIASES = {
+    "": "A2",
+    "a1": "A1",
+    "a2": "A2",
+    "a3": "A3",
+    "letter": "LETTER",
+    "usletter": "LETTER",
+    "ltr": "LETTER",
+}
+SIZE_ORDER = ["A1", "A2", "A3", "LETTER"]
 
 def list_available_languages() -> List[str]:
     found = set()
@@ -640,6 +659,85 @@ def parse_language_selections(raw: str, available: List[str]) -> List[str]:
     if not chosen:
         return ["english"] if "english" in available else [available[0]]
     return chosen
+
+def parse_format_selections(raw: str) -> List[str]:
+    text = normalize_ascii_lower(raw or "").strip()
+    if not text:
+        return ["PDF"]
+    if text in ("all", "*"):
+        return list(FORMAT_ORDER)
+
+    chosen = []
+    invalid = []
+    tokens = re.split(r"[,\s]+", text)
+    for token in tokens:
+        if not token:
+            continue
+        key = normalize_ascii_lower(token).replace(" ", "")
+        if key in FORMAT_ALIASES:
+            fmt = FORMAT_ALIASES[key]
+            if fmt not in chosen:
+                chosen.append(fmt)
+        else:
+            invalid.append(token)
+
+    if invalid:
+        print(f">>> WARNING: Ignoring unsupported formats: {', '.join(invalid)}")
+    return chosen or ["PDF"]
+
+def parse_size_selections(raw: str) -> List[str]:
+    text = normalize_ascii_lower(raw or "").strip()
+    if not text:
+        return ["A2"]
+    if text in ("all", "*"):
+        return list(SIZE_ORDER)
+
+    chosen = []
+    invalid = []
+    tokens = re.split(r"[,\s]+", text)
+    for token in tokens:
+        if not token:
+            continue
+        key = normalize_ascii_lower(token).replace(" ", "")
+        if key in SIZE_ALIASES:
+            size = SIZE_ALIASES[key]
+            if size not in chosen:
+                chosen.append(size)
+        else:
+            invalid.append(token)
+
+    if invalid:
+        print(f">>> WARNING: Ignoring unsupported paper sizes: {', '.join(invalid)}")
+    return chosen or ["A2"]
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate Parampara posters with optional CLI selections."
+    )
+    parser.add_argument(
+        "-l", "--languages",
+        help="Comma- or space-separated languages, for example: english,tamil,kannada or all.",
+    )
+    parser.add_argument(
+        "-f", "--formats",
+        help="Comma- or space-separated formats: pdf, png, or all.",
+    )
+    parser.add_argument(
+        "-s", "--sizes",
+        help="Comma- or space-separated paper sizes: a1, a2, a3, letter, or all.",
+    )
+    parser.add_argument(
+        "-o", "--output-dir",
+        help="Directory where generated files will be written.",
+    )
+    return parser.parse_args()
+
+def prompt_for_output_dir() -> str:
+    while True:
+        raw = input("Enter output folder path: ").strip().strip('"')
+        if raw:
+            return raw
+        print(">>> Please provide an output folder path.")
 
 def resolve_xlsx_path(language_choice: str) -> str:
     lang = normalize_ascii_lower(language_choice).replace(" ", "")
@@ -1213,7 +1311,6 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
     content_limit = footer_top - safety_gap
 
     lo, hi = 0.50, 0.90
-    best_scale = None
     start_scale = min(max(img_scale, lo), hi)
 
     def measure(scale: float) -> Tuple[Image.Image, int]:
@@ -1224,24 +1321,17 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
                               founders_data=founders_data, parakala_data=parakala_data,
                               founders_map=founders_map, parakala_map=parakala_map, xlsx_path=xlsx_path)
 
-    canvas, end_y = measure(start_scale)
-    if end_y <= content_limit:
-        best_scale = start_scale
-    else:
-        for _ in range(16):
-            mid = (lo + hi) / 2.0
-            canvas, end_y = measure(mid)
-            if end_y <= content_limit:
-                best_scale = mid
-                lo = mid
-            else:
-                hi = mid
-        if best_scale is None:
-            best_scale = hi
-            canvas, end_y = measure(best_scale)
+    best_scale = lo
+    for _ in range(16):
+        mid = (lo + hi) / 2.0
+        canvas, end_y = measure(mid)
+        if end_y <= content_limit:
+            best_scale = mid
+            lo = mid
+        else:
+            hi = mid
 
-    if abs(best_scale - start_scale) > 1e-6:
-        canvas, end_y = measure(best_scale)
+    canvas, end_y = measure(best_scale)
 
     if end_y > content_limit:
         sep = Image.new("RGBA", (page_w - 2*margin, 2), (0,0,0,60))
@@ -1252,24 +1342,36 @@ def render_with_auto_fit(page_w=4961, page_h=7016, margin=90, num_cols=6, gutter
 
 # ---------- Main ----------
 def main():
+    args = parse_args()
     available_languages = list_available_languages()
     if not available_languages:
         print(">>> ERROR: No language spreadsheets found.")
         return
     default_lang = "english" if "english" in available_languages else available_languages[0]
     available_label = "/".join(lang.title() for lang in available_languages)
-    language_input = input(
-        f"Enter language(s) ({available_label}) [default: {default_lang.title()}]: "
-    ).strip()
-    language_choices = parse_language_selections(language_input, available_languages)
+    if args.languages:
+        language_choices = parse_language_selections(args.languages, available_languages)
+    else:
+        language_input = input(
+            f"Enter language(s) ({available_label}) [default: {default_lang.title()}]: "
+        ).strip()
+        language_choices = parse_language_selections(language_input, available_languages)
     if not language_choices:
         print(">>> ERROR: No valid languages selected.")
         return
 
-    format_choice = input("Enter output format (PDF or PNG) [default: PDF]: ").strip().upper() or "PDF"
-    if format_choice not in ["PDF", "PNG"]:
-        print(f"Invalid format '{format_choice}'. Defaulting to PDF.")
-        format_choice = "PDF"
+    if args.formats:
+        format_choices = parse_format_selections(args.formats)
+    else:
+        format_input = input("Enter output format(s) (PDF/PNG) [default: PDF]: ").strip()
+        format_choices = parse_format_selections(format_input)
+
+    if args.output_dir:
+        output_dir = args.output_dir.strip().strip('"')
+    else:
+        output_dir = prompt_for_output_dir()
+    output_dir = os.path.abspath(os.path.expanduser(output_dir))
+    os.makedirs(output_dir, exist_ok=True)
 
     size_configs = {
         "A1": {
@@ -1277,14 +1379,36 @@ def main():
             "margin": 120, "num_cols": 7, "gutter_x": 40, "row_gap": 45,
             "title_font": 240, "subtitle_font": 88, "caption_font": 56, "footer_font": 70,
             "section2_title_size": 160, "section2_sub_size": 82,
+            "img_scale": 0.68, "section_gap_extra": 90, "banner_max_height_fraction": 0.05,
         },
         "A2": {
             "page_w": 4961, "page_h": 7016,
             "margin": 90, "num_cols": 6, "gutter_x": 30, "row_gap": 34,
             "title_font": 180, "subtitle_font": 66, "caption_font": 42, "footer_font": 52,
             "section2_title_size": 120, "section2_sub_size": 62,
+            "img_scale": 0.68, "section_gap_extra": 90, "banner_max_height_fraction": 0.05,
+        },
+        "A3": {
+            "page_w": 3508, "page_h": 4961,
+            "margin": 55, "num_cols": 6, "gutter_x": 18, "row_gap": 20,
+            "title_font": 120, "subtitle_font": 44, "caption_font": 24, "footer_font": 32,
+            "section2_title_size": 82, "section2_sub_size": 40,
+            "img_scale": 0.56, "section_gap_extra": 48, "banner_max_height_fraction": 0.04,
+        },
+        "LETTER": {
+            "page_w": 2550, "page_h": 3300,
+            "margin": 55, "num_cols": 4, "gutter_x": 20, "row_gap": 22,
+            "title_font": 96, "subtitle_font": 38, "caption_font": 24, "footer_font": 30,
+            "section2_title_size": 68, "section2_sub_size": 34,
+            "img_scale": 0.52, "section_gap_extra": 40, "banner_max_height_fraction": 0.04,
         },
     }
+    available_sizes_label = "/".join(SIZE_ORDER)
+    if args.sizes:
+        size_choices = parse_size_selections(args.sizes)
+    else:
+        size_input = input(f"Enter paper size(s) ({available_sizes_label}) [default: A2]: ").strip()
+        size_choices = parse_size_selections(size_input)
 
     global XLSX_PATH, SELECTED_LANGUAGE
     founders_map, parakala_map = index_images(IMAGES_DIR)
@@ -1301,18 +1425,22 @@ def main():
         XLSX_PATH = xlsx_path
         SELECTED_LANGUAGE = language_choice
 
-        print(f"\n>>> Generating A1 and A2 posters as {format_choice} files...")
+        print(
+            f"\n>>> Generating {', '.join(size_choices)} posters as "
+            f"{', '.join(format_choices)} into {output_dir}..."
+        )
         print(f">>> Language: {language_choice.title()} | Spreadsheet: {os.path.basename(xlsx_path)}")
 
-        for size_choice, cfg in size_configs.items():
+        for size_choice in size_choices:
+            cfg = size_configs[size_choice]
             final = render_with_auto_fit(
                 page_w=cfg["page_w"], page_h=cfg["page_h"],
                 margin=cfg["margin"], num_cols=cfg["num_cols"], gutter_x=cfg["gutter_x"], row_gap=cfg["row_gap"],
                 title_font=cfg["title_font"], subtitle_font=cfg["subtitle_font"],
                 caption_font=cfg["caption_font"], footer_font=cfg["footer_font"],
-                img_scale=0.68, section_gap_extra=90,
+                img_scale=cfg["img_scale"], section_gap_extra=cfg["section_gap_extra"],
                 section2_title_size=cfg["section2_title_size"], section2_sub_size=cfg["section2_sub_size"],
-                banner_max_height_fraction=0.05,
+                banner_max_height_fraction=cfg["banner_max_height_fraction"],
                 parchment_brightness=PARCHMENT_BRIGHTNESS, parchment_mode=PARCHMENT_MODE,
                 featured_acharya_mode=FEATURED_ACHARYA_MODE,
                 xlsx_path=xlsx_path,
@@ -1325,14 +1453,15 @@ def main():
                 continue
 
             base_name = f"Sri_Parakala_Matham_Guru_Parampara_{language_choice.title()}_{size_choice}"
-            if format_choice == "PDF":
-                output_path = os.path.join(HERE, f"{base_name}.pdf")
-                final.save(output_path, "PDF", resolution=300.0, quality=95)
-            else:
-                output_path = os.path.join(HERE, f"{base_name}.png")
-                final.save(output_path, quality=95)
+            for format_choice in format_choices:
+                if format_choice == "PDF":
+                    output_path = os.path.join(output_dir, f"{base_name}.pdf")
+                    final.save(output_path, "PDF", resolution=300.0, quality=95)
+                else:
+                    output_path = os.path.join(output_dir, f"{base_name}.png")
+                    final.save(output_path, quality=95)
 
-            print(f">>> Saved: {output_path}")
+                print(f">>> Saved: {output_path}")
 
 if __name__ == "__main__":
     main()
