@@ -929,14 +929,16 @@ def render_content(page_w:int, page_h:int, margin:int, num_cols:int, gutter_x:in
     if not banner_drawn:
         y = max(0, y - 20)
 
-    # --- FIX: Force M1 to be one line by shrinking font (English only) ---
-    force_one_line = (SELECTED_LANGUAGE or "english").lower() == "english"
+    # Keep the main title on a single line across languages to preserve image space.
+    current_language = (SELECTED_LANGUAGE or "english").lower()
+    force_one_line = True
+    min_fit_ratio = 0.52 if current_language == "tamil" else 0.65
     y = draw_centered_text(
         canvas, TITLE_TEXT, y, title_font, color=None, shadow_strength=5,
         font_weight=TITLE_FONT_WEIGHT, max_width=int(page_w*0.92),
         line_gap=12,
         force_one_line_fit=force_one_line,
-        min_fit_size=max(40, int(round(title_font * 0.65)))  # adjust if needed
+        min_fit_size=max(40, int(round(title_font * min_fit_ratio)))
     )
 
     y = draw_centered_text(canvas, SUBTITLE_TEXT, y+TITLE_SUBTITLE_GAP, subtitle_font, color=None, shadow_strength=3,
