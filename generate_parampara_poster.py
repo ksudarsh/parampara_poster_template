@@ -732,12 +732,33 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args()
 
+def _docker_default_output_dir() -> Optional[str]:
+    return "/out" if os.path.isdir("/out") else None
+
+def resolve_output_dir(raw: Optional[str]) -> str:
+    default_dir = _docker_default_output_dir()
+    text = (raw or "").strip().strip('"')
+    if not text:
+        if default_dir:
+            return default_dir
+        raise ValueError("An output folder path is required.")
+    if default_dir and re.match(r"^[A-Za-z]:[\\/]", text):
+        print(f">>> WARNING: Host path '{text}' is not directly writable inside Docker. Using {default_dir} instead.")
+        return default_dir
+    return os.path.abspath(os.path.expanduser(text))
+
 def prompt_for_output_dir() -> str:
+    default_dir = _docker_default_output_dir()
+    prompt = "Enter output folder path"
+    if default_dir:
+        prompt += f" [default: {default_dir}]"
+    prompt += ": "
     while True:
-        raw = input("Enter output folder path: ").strip().strip('"')
-        if raw:
-            return raw
-        print(">>> Please provide an output folder path.")
+        raw = input(prompt)
+        try:
+            return resolve_output_dir(raw)
+        except ValueError:
+            print(">>> Please provide an output folder path.")
 
 def resolve_xlsx_path(language_choice: str) -> str:
     lang = normalize_ascii_lower(language_choice).replace(" ", "")
@@ -1367,10 +1388,9 @@ def main():
         format_choices = parse_format_selections(format_input)
 
     if args.output_dir:
-        output_dir = args.output_dir.strip().strip('"')
+        output_dir = resolve_output_dir(args.output_dir)
     else:
         output_dir = prompt_for_output_dir()
-    output_dir = os.path.abspath(os.path.expanduser(output_dir))
     os.makedirs(output_dir, exist_ok=True)
 
     size_configs = {
