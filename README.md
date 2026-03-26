@@ -27,7 +27,7 @@ docker pull ghcr.io/ksudarsh/parampara_poster_template:latest
 ### 3) Run it (outputs go into a local `output/` folder)
 
 The container will prompt you for:
-- **Language(s):** English/Kannada/Telugu/Sanskrit (default: English)
+- **Language(s):** English/Kannada/Telugu/Tamil/Sanskrit (default: English)
 - **Output format:** PDF or PNG (default: PDF)
 
 #### Windows (PowerShell)
@@ -55,10 +55,11 @@ docker run --rm -it -v "$(pwd)/output:/out" ghcr.io/ksudarsh/parampara_poster_te
 ## Override defaults (XLSX / assets / images) — without cloning
 
 The GHCR image already includes **default data**:
-- the 4 language-specific caption workbooks:
+- the 5 language-specific caption workbooks:
   - `acharyan_captions_english.xlsx`
   - `acharyan_captions_kannada.xlsx`
   - `acharyan_captions_telugu.xlsx`
+  - `acharyan_captions_tamil.xlsx`
   - `acharyan_captions_sanskrit.xlsx`
 - `assets/` (backgrounds, tiles, signature, fonts)
 - `images/` (default portraits, if present in the image)
