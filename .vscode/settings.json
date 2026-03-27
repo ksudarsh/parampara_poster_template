@@ -7,6 +7,30 @@
 
   // Load .env for run/debug if you use it
   "python.envFile": "${workspaceFolder}\\.env",
+  "python.analysis.typeCheckingMode": "off",
+  "python.analysis.diagnosticMode": "workspace",
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportMissingImports": "none",
+    "reportMissingModuleSource": "none",
+    "reportUnknownArgumentType": "none",
+    "reportUnknownMemberType": "none",
+    "reportUnknownVariableType": "none",
+    "reportUnknownParameterType": "none",
+    "reportUnknownLambdaType": "none",
+    "reportUnknownTypedDictNotRequiredAccess": "none",
+    "reportGeneralTypeIssues": "none",
+    "reportOptionalMemberAccess": "none",
+    "reportOptionalSubscript": "none",
+    "reportOptionalCall": "none",
+    "reportOptionalOperand": "none",
+    "reportAttributeAccessIssue": "none",
+    "reportArgumentType": "none",
+    "reportAssignmentType": "none",
+    "reportReturnType": "none",
+    "reportCallIssue": "none",
+    "reportIndexIssue": "none",
+    "reportOperatorIssue": "none"
+  },
   "python-envs.defaultEnvManager": "ms-python.python:conda",
   "python-envs.defaultPackageManager": "ms-python.python:conda",
   "python-envs.pythonProjects": []
